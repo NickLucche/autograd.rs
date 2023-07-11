@@ -42,9 +42,10 @@ pub trait Operator {
 }
 
 pub struct ReLU;
+pub struct Linear;
 
 // TODO solve this variable ordering/naming problem
-impl<'a> Operator for ReLU {
+impl Operator for ReLU {
     fn backward(&self, xs: Vec<SharedPtr<Tensor>>, grad: SharedPtr<Tensor>)->Vec<SharedPtr<Tensor>> {
         // having grad as input allows to avoid unnecessary allocations
         let x = xs[0].borrow();
@@ -69,6 +70,24 @@ impl<'a> Operator for ReLU {
     }
 }
 
+impl Operator for Linear {
+    fn backward(&self, xs: Vec<SharedPtr<Tensor>>, grad: SharedPtr<Tensor>)->Vec<SharedPtr<Tensor>> {
+        unimplemented!()
+    }
+    /**
+     * x @ W + b
+     */
+    fn forward(&self, xs: Vec<SharedPtr<Tensor>>) -> Tensor {
+        let x = xs[0].borrow();
+        let W = xs[1].borrow();
+        let b = &xs[2].borrow();
+
+        return x.dot(&W) + b;
+    }
+}
+
+// TODO ReLU(ReLU)
 pub enum Operators {
     ReLU,
+    Linear
 }

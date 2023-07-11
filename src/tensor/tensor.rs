@@ -36,6 +36,21 @@ impl Tensor {
             _ => {}
         }
     }
+
+    pub fn dot(&self, other: &Tensor)->Tensor {
+        unimplemented!()
+    }
+}
+
+impl ops::Add<&Tensor> for &Tensor {
+    type Output = Tensor;
+
+    fn add(self, rhs: &Tensor) -> Self::Output {
+        for i in 0..self.data.len() {
+            self.data[i] += rhs.data[i];
+        }
+        *self
+    }
 }
 
 impl ops::Add<Tensor> for Tensor {

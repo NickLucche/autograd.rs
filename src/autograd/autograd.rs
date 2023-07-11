@@ -1,14 +1,11 @@
+use crate::operators::operators::{Operator, Operators, ReLU};
+use crate::tensor::tensor::{ones, Tensor};
 use std::cell::RefCell;
 use std::rc::Rc;
-use crate::tensor::tensor::{Tensor, ones};
-use crate::operators::operators::{Operators, Operator, ReLU};
 type SharedPtr<T> = Rc<RefCell<T>>;
 
 pub struct Node {
     pub name: Operators,
-    // TODO an operator doesn't need a grad cache it can just forward it, the variable does
-    pub grad: Tensor,
-    // TODO swap with Tensor
     pub variables: Vec<SharedPtr<Tensor>>,
     pub parents: Option<Vec<SharedPtr<Node>>>,
 }
@@ -21,7 +18,6 @@ impl Node {
     ) -> Self {
         Node {
             name,
-            grad: Tensor::new(),
             variables,
             parents,
         }
@@ -40,7 +36,6 @@ impl Node {
 //         Some(nodes)=>nodes.push(Rc::clone(graph_node))
 //     }
 // }
-
 
 pub fn backward_algo(node: SharedPtr<Node>, prev_grad: Option<SharedPtr<Tensor>>) {
     let prev_grad = prev_grad.unwrap_or(Rc::new(RefCell::new(ones())));
@@ -62,9 +57,16 @@ pub fn backward_algo(node: SharedPtr<Node>, prev_grad: Option<SharedPtr<Tensor>>
         }
     }
     // 3. recurse on parent nodes
-    for (i, parent) in node.borrow().parents.as_ref().unwrap_or(&vec![]).iter().enumerate() {
+    for (i, parent) in node
+        .borrow()
+        .parents
+        .as_ref()
+        .unwrap_or(&vec![])
+        .iter()
+        .enumerate()
+    {
         let g = Rc::clone(&grads[i]);
-        backward_algo(Rc::clone(&parent), Some(g) );
+        backward_algo(Rc::clone(&parent), Some(g));
     }
 }
 
@@ -74,7 +76,5 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_foo() {
-
-    }
+    fn test_foo() {}
 }
