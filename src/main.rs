@@ -1,5 +1,9 @@
 mod autograd;
-use autograd::autograd::{Operator, Tensor, ReLU};
+mod tensor;
+mod operators;
+
+use operators::operators::{Operator, ReLU};
+use tensor::tensor::Tensor;
 use std::rc::Rc;
 use std::cell::RefCell;
 
