@@ -23,9 +23,6 @@ impl Tensor {
             grad: vec![0; 10]
         }
     }
-    fn set_graph(&self, graph: Rc<RefCell<Node>>) {
-        self.graph = Some(graph);
-    }
 }
 impl ops::Add<Tensor> for Tensor {
     type Output = Tensor;
@@ -51,15 +48,15 @@ struct Node {
     // TODO an operator doesn't need a grad cache it can just forward it, the variable does
     pub grad: Tensor,
     // TODO swap with Tensor
-    pub variables: Vec< Rc<Tensor> >,
-    pub parents: Option< Vec<Rc<Node>> >,
+    pub variables: Vec< Rc<RefCell<Tensor>> >,
+    pub parents: Option< Vec<Rc<RefCell<Node>>> >,
 }
 
 impl Node {
     fn new(
         name: OperatorNodes,
-        variables: Vec< Rc<Tensor>>,
-        parents: Option<Vec<Rc<Node>>>,
+        variables: Vec< Rc<RefCell<Tensor>>>,
+        parents: Option<Vec<Rc<RefCell<Node>>>>,
     ) -> Self {
         Node {
             name,
@@ -98,14 +95,14 @@ fn ones()->Tensor {
 //     }
 // }
 pub trait Operator {
-    fn forward(&self, xs: Vec< Rc<Tensor> >) -> Tensor;
+    fn forward(&self, xs: Vec< Rc<RefCell<Tensor>> >) -> Tensor;
     fn backward(&self, x: &Tensor, grad: Tensor) -> Tensor;
     // fn accumulate_grad(&self, grad: Tensor) -> Tensor;
     // fn get_grad(&self) -> Tensor;
 
     // fn get_parents(&self)->Vec<Tensor>;
 }
-
+// TODO alias refcell rc node type
 impl<'a> Operator for ReLU {
     fn backward(&self, x: &Tensor, mut grad: Tensor) -> Tensor {
         // having grad as input allows to avoid unnecessary allocations
@@ -116,35 +113,34 @@ impl<'a> Operator for ReLU {
         }
         grad
     }
-    fn forward(&self, mut xs: Vec< Rc<Tensor> >) -> Tensor {
+    fn forward(&self, xs: Vec< Rc<RefCell<Tensor>> >) -> Tensor {
         // **** 
         // TODO this code must be shared or called explicitely
 
         // keep references to operator inputs
-        let mut vars: Vec<Rc<Tensor>> = Vec::new();
+        let mut vars: Vec<Rc<RefCell<Tensor>>> = Vec::new();
         let mut op_parents = Vec::new();
         for x in xs.iter() {
             vars.push(Rc::clone(&x));
-            if !x.graph.is_none() {
+            if !x.borrow().graph.is_none() {
                 // input is the result of another op, attach current op to it in the graph
-                op_parents.push(Rc::clone(x.graph.as_ref().unwrap()));
+                op_parents.push(Rc::clone(x.borrow().graph.as_ref().unwrap()));
             }
         }
         // instatiate new operator node on heap
-        let mut op: Rc<Node> = if op_parents.len() > 0 {
+        let mut op: Rc<RefCell<Node>> = if op_parents.len() > 0 {
             // attach to graph by linking its parents!
-            Rc::new(Node::new(OperatorNodes::ReLU, vars, Some(op_parents)))
+            Rc::new(RefCell::new(Node::new(OperatorNodes::ReLU, vars, Some(op_parents))))
         } else {
             // first node in the graph
-            Rc::new(Node::new(OperatorNodes::ReLU, vars, None))
+            Rc::new(RefCell::new(Node::new(OperatorNodes::ReLU, vars, None)))
         };
 
         // TODO we could attach it to out tensor if op not in_place, do if on that
-        for x in xs.iter_mut() {
-            if x.graph.is_none() {
+        for x in xs {
+            if x.borrow().graph.is_none() {
                 // init new graph!
-                x.set_graph(RefCell::new(Rc::clone(op)));
-                // x.graph = Some(Rc::clone(&op));
+                (*x).borrow_mut().graph = Some(Rc::clone(&op));
             }
         }
         // NOTE even when all input have graph, `op` can be reached with the backward chain as long as we have the latest node (the one we call backward from)!
