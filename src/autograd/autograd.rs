@@ -23,6 +23,16 @@ impl Tensor {
             grad: vec![0; 10],
         }
     }
+
+    pub fn backward(&self) {
+        if !self.requires_grad {
+            unimplemented!();
+        }
+        match &self.graph {
+            Some(g)=>backward_algo(Rc::clone(g), None),
+            _ => {}
+        }
+    }
 }
 impl ops::Add<Tensor> for Tensor {
     type Output = Tensor;
@@ -85,52 +95,42 @@ pub struct ReLU;
 fn ones() -> Tensor {
     Tensor::new()
 }
-fn backward_algo(node: Node, prev_grad: Option<Tensor>) {
-    let prev_grad = prev_grad.unwrap_or(ones());
+fn foo(xs: Vec<Rc<RefCell<Tensor>>>, g: Rc<RefCell<Tensor>>)->Vec<Rc<RefCell<Tensor>>>{
+    g.borrow_mut().data[0] = 1;
+    vec![ Rc::new(RefCell::new(Tensor::new())) ]
+}
+fn backward_algo(node: Rc<RefCell<Node>>, prev_grad: Option<Rc<RefCell<Tensor>>>) {
+    let prev_grad = prev_grad.unwrap_or(Rc::new(RefCell::new(ones())));
     // 1. compute gradient(s) of current operator wrt its input(s)
     // TODO from trait node.name->operator
     let op = ReLU {};
     // TODO avoid computing grad altogheter if var does not require it
-    let grads = op.backward(node.variables, prev_grad);
+    let op_inputs = node.borrow().variables.to_vec(); // TODO this does a copy!
+    // let grads = op.backward(op_inputs, prev_grad.borrow_mut());
+    let grads = foo(op_inputs, prev_grad);
     // 2. accumulate gradient on input vars
-    for (i, var) in node.variables.iter().enumerate() {
+    for (i, var) in node.borrow().variables.iter().enumerate() {
         // var.borrow_mut().grad += grads[i];
         if var.borrow().requires_grad {
-            let mut acc = var.borrow_mut().grad;
+            let acc = &mut var.borrow_mut().grad;
             for j in 0..acc.len() {
-                acc[j] += grads[i].data[j];
+                acc[j] += grads[i].borrow().data[j];
             }
         }
     }
     // 3. recurse on parent nodes
-    for parent in node.parents.unwrap_or(vec![]) {
-        backward_algo(*parent.borrow(), Some(grads[0]));
+    for (i, parent) in node.borrow().parents.as_ref().unwrap_or(&vec![]).iter().enumerate() {
+        let g = Rc::clone(&grads[i]);
+        backward_algo(Rc::clone(&parent), Some(g) );
     }
 }
+
 pub trait Operator {
     fn forward(&self, xs: Vec<Rc<RefCell<Tensor>>>) -> Tensor;
-    fn backward(&self, xs: Vec<Rc<RefCell<Tensor>>>, grad: Tensor) -> Vec<Tensor>;
+    fn backward(&self, xs: Vec<Rc<RefCell<Tensor>>>, grad: Rc<RefCell<Tensor>>)->Vec<Rc<RefCell<Tensor>>>;
     // fn accumulate_grad(&self, grad: Tensor) -> Tensor;
     // fn get_grad(&self) -> Tensor;
-
-    // fn get_parents(&self)->Vec<Tensor>;
-}
-// TODO solve this variable ordering/naming problem
-impl<'a> Operator for ReLU {
-    fn backward(&self, xs: Vec<Rc<RefCell<Tensor>>>, mut grad: Tensor) -> Vec<Tensor> {
-        // having grad as input allows to avoid unnecessary allocations
-        let x = xs[0].borrow();
-        for i in 0..x.data.len() {
-            if x.data[i] <= 0 {
-                grad.data[i] = 0;
-            }
-        }
-        vec![grad]
-    }
-    fn forward(&self, xs: Vec<Rc<RefCell<Tensor>>>) -> Tensor {
-        // ****
-        // TODO this code must be shared or called explicitely
-
+    fn attach_to_eager_graph(&self, xs: Vec<Rc<RefCell<Tensor>>>, op_output: &mut Tensor) {
         // keep references to operator inputs
         let mut vars: Vec<Rc<RefCell<Tensor>>> = Vec::new();
         let mut op_parents = Vec::new();
@@ -139,6 +139,9 @@ impl<'a> Operator for ReLU {
             if !x.borrow().graph.is_none() {
                 // input is the result of another op, attach current op to it in the graph
                 op_parents.push(Rc::clone(x.borrow().graph.as_ref().unwrap()));
+            } else {
+                // drop previous references to the graph: `backwards` can only be called from latest output var (e.g. loss)!
+                (*x).borrow_mut().graph = None;
             }
         }
         // instatiate new operator node on heap
@@ -153,25 +156,34 @@ impl<'a> Operator for ReLU {
             // first node in the graph
             Rc::new(RefCell::new(Node::new(OperatorNodes::ReLU, vars, None)))
         };
+        
+        // "attach" output var to graph 
+        op_output.graph = Some(op);
+    }
+}
 
-        // TODO we could attach it to out tensor if op not in_place, do if on that
-        for x in &xs {
-            if x.borrow().graph.is_none() {
-                // init new graph!
-                (*x).borrow_mut().graph = Some(Rc::clone(&op));
+// TODO solve this variable ordering/naming problem
+impl<'a> Operator for ReLU {
+    fn backward(&self, xs: Vec<Rc<RefCell<Tensor>>>, grad: Rc<RefCell<Tensor>>)->Vec<Rc<RefCell<Tensor>>> {
+        // having grad as input allows to avoid unnecessary allocations
+        let x = xs[0].borrow();
+        let mut g: std::cell::RefMut<'_, Tensor> = grad.borrow_mut();
+        for i in 0..x.data.len() {
+            if x.data[i] <= 0 {
+                g.data[i] = 0;
             }
         }
-        // NOTE even when all input have graph, `op` can be reached with the backward chain as long as we have the latest node (the one we call backward from)!
-        // If multiple final nodes/heads are present, multiple backward must be called (or just sum em like when you have multiple losses)
-
-        // ****
-
+        vec![Rc::clone(&grad)]
+    }
+    fn forward(&self, xs: Vec<Rc<RefCell<Tensor>>>) -> Tensor {
         let mut t = Tensor::new();
+        // TODO in_place: treat x as output and attach it to current op
         for (i, val) in xs[0].borrow_mut().data.iter().enumerate() {
             if *val > 0 {
                 t.data[i] = *val;
             }
         }
+        self.attach_to_eager_graph(xs, &mut t);
         t
     }
 }
