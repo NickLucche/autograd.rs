@@ -2,6 +2,7 @@ use crate::operators::operators::{Operator, Operators, ReLU};
 use crate::tensor::tensor::{ones, Tensor};
 use std::cell::RefCell;
 use std::rc::Rc;
+// NOTE not thread-safe!
 type SharedPtr<T> = Rc<RefCell<T>>;
 
 pub struct Node {
