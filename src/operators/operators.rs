@@ -5,13 +5,13 @@ use crate::autograd::autograd::Node;
 type SharedPtr<T> = Rc<RefCell<T>>;
 
 pub trait Operator {
-    fn forward(&self, xs: Vec<SharedPtr<Tensor>>) -> Tensor;
-    fn backward(&self, xs: Vec<SharedPtr<Tensor>>, grad: SharedPtr<Tensor>)->Vec<SharedPtr<Tensor>>;
+    fn forward<T, D>(&self, xs: Vec<SharedPtr<Tensor<T, D>>>) -> Tensor<T, D>;
+    fn backward<T, D>(&self, xs: Vec<SharedPtr<Tensor<T, D>>>, grad: SharedPtr<Tensor<T, D>>)->Vec<SharedPtr<Tensor<T, D>>>;
 
     // TODO should this function live in autograd?
-    fn attach_to_eager_graph(&self, xs: Vec<SharedPtr<Tensor>>, op_output: &mut Tensor) {
+    fn attach_to_eager_graph<T, D>(&self, xs: Vec<SharedPtr<Tensor<T, D>>>, op_output: &mut Tensor<T, D>) {
         // keep references to operator inputs
-        let mut vars: Vec<SharedPtr<Tensor>> = Vec::new();
+        let mut vars: Vec<SharedPtr<Tensor<T, D>>> = Vec::new();
         let mut op_parents = Vec::new();
         for x in xs.iter() {
             vars.push(Rc::clone(&x));
@@ -46,10 +46,10 @@ pub struct Linear;
 
 // TODO solve this variable ordering/naming problem
 impl Operator for ReLU {
-    fn backward(&self, xs: Vec<SharedPtr<Tensor>>, grad: SharedPtr<Tensor>)->Vec<SharedPtr<Tensor>> {
+    fn backward<T, D>(&self, xs: Vec<SharedPtr<Tensor<T, D>>>, grad: SharedPtr<Tensor<T, D>>)->Vec<SharedPtr<Tensor<T, D>>> {
         // having grad as input allows to avoid unnecessary allocations
         let x = xs[0].borrow();
-        let mut g: std::cell::RefMut<'_, Tensor> = grad.borrow_mut();
+        let mut g: std::cell::RefMut<'_, Tensor<T, D>> = grad.borrow_mut();
         for i in 0..x.data.len() {
             if x.data[i] <= 0 {
                 g.data[i] = 0;
@@ -57,7 +57,7 @@ impl Operator for ReLU {
         }
         vec![Rc::clone(&grad)]
     }
-    fn forward(&self, xs: Vec<SharedPtr<Tensor>>) -> Tensor {
+    fn forward<T, D>(&self, xs: Vec<SharedPtr<Tensor<T, D>>>) -> Tensor<T, D> {
         let mut t = Tensor::new();
         // TODO in_place: treat x as output and attach it to current op
         for (i, val) in xs[0].borrow_mut().data.iter().enumerate() {
@@ -71,13 +71,13 @@ impl Operator for ReLU {
 }
 
 impl Operator for Linear {
-    fn backward(&self, xs: Vec<SharedPtr<Tensor>>, grad: SharedPtr<Tensor>)->Vec<SharedPtr<Tensor>> {
+    fn backward<T, D>(&self, xs: Vec<SharedPtr<Tensor<T, D>>>, grad: SharedPtr<Tensor<T, D>>)->Vec<SharedPtr<Tensor<T, D>>> {
         unimplemented!()
     }
     /**
      * x @ W + b
      */
-    fn forward(&self, xs: Vec<SharedPtr<Tensor>>) -> Tensor {
+    fn forward<T, D>(&self, xs: Vec<SharedPtr<Tensor<T, D>>>) -> Tensor<T, D> {
         let x = xs[0].borrow();
         let W = xs[1].borrow();
         let b = &xs[2].borrow();

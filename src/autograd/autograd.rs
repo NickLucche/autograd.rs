@@ -5,17 +5,17 @@ use std::rc::Rc;
 // NOTE not thread-safe!
 type SharedPtr<T> = Rc<RefCell<T>>;
 
-pub struct Node {
+pub struct Node<T, D> {
     pub name: Operators,
-    pub variables: Vec<SharedPtr<Tensor>>,
-    pub parents: Option<Vec<SharedPtr<Node>>>,
+    pub variables: Vec<SharedPtr<Tensor<T, D>>>,
+    pub parents: Option<Vec<SharedPtr<Node<T, D>>>>,
 }
 
-impl Node {
+impl<T, D> Node<T, D> {
     pub fn new(
         name: Operators, // TODO either name mapping lazy op creation or impl Operator trait
-        variables: Vec<SharedPtr<Tensor>>,
-        parents: Option<Vec<SharedPtr<Node>>>,
+        variables: Vec<SharedPtr<Tensor<T, D>>>,
+        parents: Option<Vec<SharedPtr<Node<T, D>>>>,
     ) -> Self {
         Node {
             name,
@@ -23,22 +23,22 @@ impl Node {
             parents,
         }
     }
-    fn accumulate_grad(&self, grad: Tensor) -> Tensor {
+    fn accumulate_grad(&self, grad: Tensor<T, D>) -> Tensor<T, D> {
         !unimplemented!()
     }
-    fn get_grad(&self) -> Tensor {
+    fn get_grad(&self) -> Tensor<T, D> {
         !unimplemented!()
     }
 }
 
-// fn attach_to_graph(graph_node: &Rc<Node>, op: &mut Rc<Node>) {
+// fn attach_to_graph<T, D>(graph_node: &Rc<Node>, op: &mut Rc<Node>) {
 //     match &mut op.parents {
 //         None => op.parents = Some(vec![Rc::clone(graph_node)]),
 //         Some(nodes)=>nodes.push(Rc::clone(graph_node))
 //     }
 // }
 
-pub fn backward_algo(node: SharedPtr<Node>, prev_grad: Option<SharedPtr<Tensor>>) {
+pub fn backward_algo<T, D>(node: SharedPtr<Node<T, D>>, prev_grad: Option<SharedPtr<Tensor<T, D>>>) {
     let prev_grad = prev_grad.unwrap_or(Rc::new(RefCell::new(ones())));
     // 1. compute gradient(s) of current operator wrt its input(s)
     // FIXME from trait node.name->operator
@@ -77,5 +77,5 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_foo() {}
+    fn test_simple_graph() {}
 }
