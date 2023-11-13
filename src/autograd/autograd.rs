@@ -1,8 +1,8 @@
 use ndarray::Dimension;
 use num_traits::{FromPrimitive, Float};
 
-use crate::operators::operators::{Operator, Operators, ReLU};
-use crate::tensor::tensor::{ones, Tensor};
+use crate::operators::operators::{Operator, Operators};
+use crate::tensor::tensor::{Tensor, ones_like};
 use std::cell::RefCell;
 use std::rc::Rc;
 // NOTE not thread-safe!
@@ -36,13 +36,11 @@ impl<T, D> Node<T, D> where T: Float+FromPrimitive, D: Dimension {
 
 
 pub fn backward_algo<T: Float+FromPrimitive, D: Dimension>(node: SharedPtr<Node<T, D>>, prev_grad: Option<SharedPtr<Tensor<f32, D>>>) {
-    let prev_grad = prev_grad.unwrap_or(Rc::new(RefCell::new(ones())));
     // 1. compute gradient(s) of current operator wrt its input(s)
-    // lazy init
     let op = &node.borrow().operator;
     // TODO avoid computing grad altogheter if var does not require it
     let op_inputs = node.borrow().variables.to_vec(); // TODO this does a copy!
-    // manual dispatch
+    // manual dispatch with lazy init of grad
     let grads = match op {
         Operators::ReLU(op)=>op.backward(op_inputs, prev_grad),
         Operators::Linear(op)=>op.backward(op_inputs, prev_grad)
@@ -74,6 +72,7 @@ pub fn backward_algo<T: Float+FromPrimitive, D: Dimension>(node: SharedPtr<Node<
 mod tests {
     use super::*;
     use ndarray::prelude::*;
+    use crate::operators::operators::ReLU;
 
     #[test]
     fn test_simple_graph() {
@@ -87,5 +86,6 @@ mod tests {
             print!("{}\t", x);
         }
         assert_eq!(res.data, x2.data);
+        res.backward();
     }
 }

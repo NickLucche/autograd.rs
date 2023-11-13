@@ -77,9 +77,13 @@ impl<T, D> Tensor<T, D> where T: Float+FromPrimitive, D: Dimension {
 
 
 // TODO other file for ops
-pub fn ones<T: Float+FromPrimitive, D: Dimension>() -> Tensor<T, D> {
-    unimplemented!();
-    // Tensor::new()
+pub fn ones_like<T: Float+FromPrimitive, D: Dimension>(t: &Tensor<T, D>) -> Tensor<T, D> {
+    let data = Array::<T, D>::ones(t.data.raw_dim());
+    Tensor::from(data)
+}
+pub fn ones_like_f32<T: Float+FromPrimitive, D: Dimension>(t: &Tensor<T, D>) -> Tensor<f32, D> {
+    let data = Array::<f32, D>::ones(t.data.raw_dim());
+    Tensor::from(data)
 }
 
 pub fn zeros_like<T: Float+FromPrimitive, D: Dimension>(t: &Tensor<T, D>) -> Tensor<T, D> {
