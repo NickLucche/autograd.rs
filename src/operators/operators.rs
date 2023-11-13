@@ -6,15 +6,13 @@ use std::rc::Rc;
 use crate::autograd::autograd::Node;
 use crate::tensor::tensor::{zeros_like, Tensor};
 type SharedPtr<T> = Rc<RefCell<T>>;
-use ndarray::NdIndex;
 
 pub trait Operator {
     fn forward<T: Float + FromPrimitive, D: Dimension>(
         &self,
         xs: Vec<SharedPtr<Tensor<T, D>>>,
     ) -> Tensor<T, D>;
-    // this signature would be needed for setting the value of grad if it was of a generic type
-    // fn backward<T, D>(&self, xs: Vec<SharedPtr<Tensor<T, D>>>, grad: SharedPtr<Tensor<f32, D>>)->Vec<SharedPtr<Tensor<T, D>>> ;
+
     fn backward<T, D>(
         &self,
         xs: Vec<SharedPtr<Tensor<T, D>>>,
@@ -29,6 +27,7 @@ pub trait Operator {
         &self,
         xs: Vec<SharedPtr<Tensor<T, D>>>,
         op_output: &mut Tensor<T, D>,
+        operator: Operators
     ) {
         // keep references to operator inputs
         let mut vars: Vec<SharedPtr<Tensor<T, D>>> = Vec::new();
@@ -38,22 +37,21 @@ pub trait Operator {
             if !x.borrow().graph.is_none() {
                 // input is the result of another op, attach current op to it in the graph
                 op_parents.push(Rc::clone(x.borrow().graph.as_ref().unwrap()));
-            } else {
-                // drop previous references to the graph: `backwards` can only be called from latest output var (e.g. loss)!
-                (*x).borrow_mut().graph = None; // TODO isnt this none already?
             }
+            // drop previous references to the graph: `backwards` can only be called from latest output var (e.g. loss)!
+            (*x).borrow_mut().graph = None;
         }
         // instatiate new operator node on heap
         let mut op: SharedPtr<Node<T, D>> = if op_parents.len() > 0 {
             // attach to graph by linking its parents!
             Rc::new(RefCell::new(Node::new(
-                Operators::ReLU,
+                operator.into(),
                 vars,
                 Some(op_parents),
             )))
         } else {
             // first node in the graph
-            Rc::new(RefCell::new(Node::new(Operators::ReLU, vars, None)))
+            Rc::new(RefCell::new(Node::new(operator, vars, None)))
         };
 
         // "attach" output var to graph
@@ -100,7 +98,7 @@ impl Operator for ReLU {
                 *tv = *xv;
             }
         }
-        self.attach_to_eager_graph(xs, &mut t);
+        self.attach_to_eager_graph(xs, &mut t, Operators::ReLU(ReLU));
         t
     }
 }
@@ -128,8 +126,40 @@ impl Operator for Linear {
     }
 }
 
-// TODO ReLU(ReLU)
+// took a while to figure out a way to deal with dispatching and object safety violated due to generics in traits
+// see https://play.rust-lang.org/?version=stable&mode=debug&edition=2021&gist=504f29b8003d70964caee607b5655a88
+// thanks to https://www.possiblerust.com/pattern/3-things-to-try-when-you-can-t-make-a-trait-object#code-1 
 pub enum Operators {
-    ReLU,
-    Linear,
+    ReLU(ReLU),
+    Linear(Linear),
+}
+
+impl Into<String> for Operators {
+    fn into(self) -> String {
+        match (self) {
+            Operators::ReLU(_)=>String::from("ReLU"),
+            Operators::Linear(_)=>String::from("Linear"),
+            _ => panic!("Unknown operator")
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ndarray::prelude::*;
+
+    #[test]
+    fn test_relu_on_mat() {
+        let a = array![[-1.,-2.], [3., 4.]];
+        let mut x = Tensor::from(a);
+        x.data.view_mut().into_shape((4)).unwrap()[0] = 1.0;
+
+        let mut xs = vec![Rc::new(RefCell::new(x))];
+        let res = ReLU{}.forward(xs);
+        for x in &res.data {
+            print!("{}\t", x);
+        }
+        assert_eq!(res.data, array![[1., 0.,], [3., 4.]]);
+    }
 }

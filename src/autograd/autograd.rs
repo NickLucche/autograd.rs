@@ -9,19 +9,19 @@ use std::rc::Rc;
 type SharedPtr<T> = Rc<RefCell<T>>;
 
 pub struct Node<T: Float+FromPrimitive, D: Dimension> {
-    pub name: Operators,
+    pub operator: Operators,
     pub variables: Vec<SharedPtr<Tensor<T, D>>>,
     pub parents: Option<Vec<SharedPtr<Node<T, D>>>>,
 }
 
 impl<T, D> Node<T, D> where T: Float+FromPrimitive, D: Dimension {
     pub fn new(
-        name: Operators, // TODO either name mapping lazy op creation or impl Operator trait
+        operator: Operators,
         variables: Vec<SharedPtr<Tensor<T, D>>>,
         parents: Option<Vec<SharedPtr<Node<T, D>>>>,
     ) -> Self {
         Node {
-            name,
+            operator,
             variables,
             parents,
         }
@@ -34,22 +34,19 @@ impl<T, D> Node<T, D> where T: Float+FromPrimitive, D: Dimension {
     }
 }
 
-// fn attach_to_graph<T, D>(graph_node: &Rc<Node>, op: &mut Rc<Node>) {
-//     match &mut op.parents {
-//         None => op.parents = Some(vec![Rc::clone(graph_node)]),
-//         Some(nodes)=>nodes.push(Rc::clone(graph_node))
-//     }
-// }
 
 pub fn backward_algo<T: Float+FromPrimitive, D: Dimension>(node: SharedPtr<Node<T, D>>, prev_grad: Option<SharedPtr<Tensor<f32, D>>>) {
     let prev_grad = prev_grad.unwrap_or(Rc::new(RefCell::new(ones())));
     // 1. compute gradient(s) of current operator wrt its input(s)
-    // FIXME from trait node.name->operator
     // lazy init
-    let op = ReLU {};
+    let op = &node.borrow().operator;
     // TODO avoid computing grad altogheter if var does not require it
     let op_inputs = node.borrow().variables.to_vec(); // TODO this does a copy!
-    let grads = op.backward(op_inputs, prev_grad);
+    // manual dispatch
+    let grads = match op {
+        Operators::ReLU(op)=>op.backward(op_inputs, prev_grad),
+        Operators::Linear(op)=>op.backward(op_inputs, prev_grad)
+    };
     // 2. accumulate gradient on input vars
     for (i, var) in node.borrow().variables.iter().enumerate() {
         // TODO should I check for `requires_grad` inside accumulate and silently do nothing? 
@@ -73,11 +70,22 @@ pub fn backward_algo<T: Float+FromPrimitive, D: Dimension>(node: SharedPtr<Node<
     }
 }
 
-// TODO unit tests here
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ndarray::prelude::*;
 
     #[test]
-    fn test_simple_graph() {}
+    fn test_simple_graph() {
+        let a = array![[0.,1.], [2., 3.]];
+        let mut x = Tensor::from(a);
+        let x2 = x.clone();
+        // x.data.view_mut().into_shape((4)).unwrap()[0] = 1.0;
+        let mut xs = vec![Rc::new(RefCell::new(x))];
+        let res = ReLU{}.forward(xs);
+        for x in &res.data {
+            print!("{}\t", x);
+        }
+        assert_eq!(res.data, x2.data);
+    }
 }
