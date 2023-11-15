@@ -2,7 +2,8 @@ use std::ops;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::convert::From;
-use ndarray::{Array, ArrayBase, array, Dimension};
+use ndarray::{Array, Dimension};
+use ndarray::linalg::Dot;
 use crate::autograd::autograd::{Node, backward_algo};
 extern crate num_traits;
 // use num_traits::Num;
@@ -70,9 +71,15 @@ impl<T, D> Tensor<T, D> where T: Float+FromPrimitive, D: Dimension {
         }
     }
 
-//     pub fn dot(&self, other: &Tensor<T, D>)->Tensor<T, D> {
-//         unimplemented!()
-//     }
+
+}
+impl<T, D> Tensor<T, D> where T: Float+FromPrimitive, D: Dimension, Array<T, D>: Dot<Array<T, D>, Output = Array<T, D>> {
+    pub fn dot(&mut self, other: &Tensor<T, D>)->&Tensor<T, D> {
+        // NOTE this actually only works with 1D/2D matrices! https://docs.rs/ndarray/latest/ndarray/linalg/trait.Dot.html
+        // TODO in-place
+        self.data = self.data.dot(&other.data);
+        self
+    }
 }
 
 

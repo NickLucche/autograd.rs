@@ -2,7 +2,7 @@ use ndarray::Dimension;
 use num_traits::{FromPrimitive, Float};
 
 use crate::operators::operators::{Operator, Operators};
-use crate::tensor::tensor::{Tensor, ones_like};
+use crate::tensor::tensor::Tensor;
 use std::cell::RefCell;
 use std::rc::Rc;
 // NOTE not thread-safe!

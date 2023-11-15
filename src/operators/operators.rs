@@ -1,5 +1,5 @@
-use ndarray::Dimension;
-use num_traits::{Float, FromPrimitive, Num};
+use ndarray::{Dimension, IntoDimension};
+use num_traits::{Float, FromPrimitive};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -144,11 +144,14 @@ impl Operator for Linear {
         &self,
         xs: Vec<SharedPtr<Tensor<T, D>>>,
     ) -> Tensor<T, D> {
-        let x = xs[0].borrow();
+        let x: &Tensor<T, D> = &xs[0].borrow();
+        // TODO W must be "casted" to a 2D matrix!
         let W = xs[1].borrow();
-        let b = &xs[2].borrow();
+
         unimplemented!();
-        // return x.dot(&W) + b;
+        // let b = &xs[2].borrow();
+        // x.data.dot
+        // return x.data.dot(&W) + b;
     }
 }
 
