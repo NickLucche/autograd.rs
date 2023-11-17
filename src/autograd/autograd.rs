@@ -1,20 +1,24 @@
-use ndarray::Dimension;
-use num_traits::{FromPrimitive, Float};
-
 use crate::operators::operators::{Operator, Operators};
 use crate::tensor::tensor::Tensor;
+use ndarray::linalg::Dot;
+use ndarray::{Array, Dimension};
+use num_traits::{Float, FromPrimitive};
 use std::cell::RefCell;
 use std::rc::Rc;
 // NOTE not thread-safe!
 type SharedPtr<T> = Rc<RefCell<T>>;
 
-pub struct Node<T: Float+FromPrimitive, D: Dimension> {
+pub struct Node<T: Float + FromPrimitive, D: Dimension> {
     pub operator: Operators,
     pub variables: Vec<SharedPtr<Tensor<T, D>>>,
     pub parents: Option<Vec<SharedPtr<Node<T, D>>>>,
 }
 
-impl<T, D> Node<T, D> where T: Float+FromPrimitive, D: Dimension {
+impl<T, D> Node<T, D>
+where
+    T: Float + FromPrimitive,
+    D: Dimension,
+{
     pub fn new(
         operator: Operators,
         variables: Vec<SharedPtr<Tensor<T, D>>>,
@@ -26,28 +30,25 @@ impl<T, D> Node<T, D> where T: Float+FromPrimitive, D: Dimension {
             parents,
         }
     }
-    fn accumulate_grad(&self, grad: Tensor<T, D>) -> Tensor<T, D> {
-        !unimplemented!()
-    }
-    fn get_grad(&self) -> Tensor<T, D> {
-        !unimplemented!()
-    }
 }
 
-
-pub fn backward_algo<T: Float+FromPrimitive, D: Dimension>(node: SharedPtr<Node<T, D>>, prev_grad: Option<SharedPtr<Tensor<f32, D>>>) {
+pub fn backward_algo<T, D>(node: SharedPtr<Node<T, D>>, prev_grad: SharedPtr<Tensor<f32, D>>)
+where
+    T: Float + FromPrimitive,
+    D: Dimension,
+{
     // 1. compute gradient(s) of current operator wrt its input(s)
     let op = &node.borrow().operator;
     // TODO avoid computing grad altogheter if var does not require it
     let op_inputs = node.borrow().variables.to_vec(); // TODO this does a copy!
-    // manual dispatch with lazy init of grad
+                                                      // manual dispatch with lazy init of grad
     let grads = match op {
-        Operators::ReLU(op)=>op.backward(op_inputs, prev_grad),
-        Operators::Linear(op)=>op.backward(op_inputs, prev_grad)
+        Operators::ReLU(op) => op.backward(op_inputs, prev_grad),
+        Operators::Linear(op) => op.backward(op_inputs, prev_grad),
     };
     // 2. accumulate gradient on input vars
     for (i, var) in node.borrow().variables.iter().enumerate() {
-        // TODO should I check for `requires_grad` inside accumulate and silently do nothing? 
+        // TODO should I check for `requires_grad` inside accumulate and silently do nothing?
         if var.borrow().requires_grad {
             let x = &mut var.borrow_mut();
             // lazy init of x grad when accumulating
@@ -64,24 +65,24 @@ pub fn backward_algo<T: Float+FromPrimitive, D: Dimension>(node: SharedPtr<Node<
         .enumerate()
     {
         let g = Rc::clone(&grads[i]);
-        backward_algo(Rc::clone(&parent), Some(g));
+        backward_algo(Rc::clone(&parent), g);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ndarray::prelude::*;
     use crate::operators::operators::ReLU;
+    use ndarray::prelude::*;
 
     #[test]
     fn test_simple_graph() {
-        let a = array![[0.,1.], [2., 3.]];
-        let mut x = Tensor::from(a);
+        let a = array![[0., 1.], [2., 3.]];
+        let x = Tensor::from(a);
         let x2 = x.clone();
         // x.data.view_mut().into_shape((4)).unwrap()[0] = 1.0;
-        let mut xs = vec![Rc::new(RefCell::new(x))];
-        let res = ReLU{}.forward(xs);
+        let xs = vec![Rc::new(RefCell::new(x))];
+        let res = ReLU {}.forward(xs);
         for x in &res.data {
             print!("{}\t", x);
         }

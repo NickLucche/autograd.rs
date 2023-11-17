@@ -1,44 +1,49 @@
-use std::ops;
-use std::cell::RefCell;
-use std::rc::Rc;
-use std::convert::From;
-use ndarray::{Array, Dimension};
+use crate::autograd::autograd::{backward_algo, Node};
+use crate::operators::operators::shared_ptr_new;
 use ndarray::linalg::Dot;
-use crate::autograd::autograd::{Node, backward_algo};
+use ndarray::{Array, Dimension};
+use std::cell::RefCell;
+use std::convert::From;
+use std::ops;
+use std::rc::Rc;
 extern crate num_traits;
 // use num_traits::Num;
-use num_traits::{cast::FromPrimitive, float::Float};
 use super::arithmetic::*;
+use num_traits::{cast::FromPrimitive, float::Float};
 
+// trait WellBehavedArray<T, D> where T: Float+FromPrimitive, D: Dimension, Array<T, D>: Dot<Array<T, D>, Output = Array<T, D>> {}
 // trait WellBehavedArray: PartialOrd + Display {}
 // impl<T: PartialOrd + Display> PartialDisplay for T {}
 
-
 type SharedPtr<T> = Rc<RefCell<T>>;
-// we don't want to support all types, we require T to be a number 
-pub struct Tensor<T: Float+FromPrimitive, D: Dimension> {
+// we don't want to support all types, we require T to be a number
+pub struct Tensor<T: Float + FromPrimitive, D: Dimension> {
     pub requires_grad: bool,
     // TODO rename to graph_node
     pub graph: Option<SharedPtr<Node<T, D>>>,
     // graph: Option< Rc<Node> >,
     pub data: Array<T, D>,
     pub grad: Option<Array<f32, D>>,
-    name: String // for later use if we want to enforce arg order in ops
+    name: String, // for later use if we want to enforce arg order in ops
 }
 // TODO a .no_grad() can skip graph creation; but by default grad is init lazily
-impl<T: Float+FromPrimitive, D: Dimension> From<Array<T, D> > for Tensor<T, D> {
+impl<T: Float + FromPrimitive, D: Dimension> From<Array<T, D>> for Tensor<T, D> {
     fn from(arr: Array<T, D>) -> Self {
         Self {
             graph: None,
             data: arr,
             grad: None, // lazy init
             name: "".to_string(),
-            requires_grad: true
+            requires_grad: true,
         }
     }
 }
 
-impl<T, D> Tensor<T, D> where T: Float+FromPrimitive, D: Dimension {
+impl<T, D> Tensor<T, D>
+where
+    T: Float + FromPrimitive,
+    D: Dimension,
+{
     pub fn clone(&self) -> Tensor<T, D>
     where
         T: Clone,
@@ -48,7 +53,7 @@ impl<T, D> Tensor<T, D> where T: Float+FromPrimitive, D: Dimension {
             data: self.data.clone(),
             grad: self.grad.clone(),
             name: self.name.clone(),
-            requires_grad: self.requires_grad
+            requires_grad: self.requires_grad,
         }
     }
 
@@ -56,12 +61,12 @@ impl<T, D> Tensor<T, D> where T: Float+FromPrimitive, D: Dimension {
         self.grad = Some(Array::zeros(self.data.raw_dim()));
     }
 
-    pub fn accumulate_grad<A: Float+FromPrimitive>(&mut self, b: &Tensor<A, D>) {
+    pub fn accumulate_grad<A: Float + FromPrimitive>(&mut self, b: &Tensor<A, D>) {
         // if self has no grad, lazy init it here
-        match(&mut self.grad, &b.grad) {
-            (None, Some(b_grad)) => {self.grad = Some(b_grad.clone())},
+        match (&mut self.grad, &b.grad) {
+            (None, Some(b_grad)) => self.grad = Some(b_grad.clone()),
             (Some(a_grad), Some(b_grad)) => *a_grad += b_grad,
-            (_, None)=>{}
+            (_, None) => {}
         }
     }
 
@@ -69,38 +74,38 @@ impl<T, D> Tensor<T, D> where T: Float+FromPrimitive, D: Dimension {
         if !self.requires_grad {
             unimplemented!();
         }
+        // grad accumulator is always the same size as the output var from which backward is called on!
+        // e.g Loss -> self is a "scalar", prev_grad=1
         match &self.graph {
-            Some(g)=>backward_algo(Rc::clone(g), None),
-            _ => {}
+            Some(g) => backward_algo(Rc::clone(g), shared_ptr_new(ones_like_f32(self))),
+            _ => panic!("Variable has no attached graph"),
         }
     }
-
-
 }
-impl<T, D> Tensor<T, D> where T: Float+FromPrimitive, D: Dimension, Array<T, D>: Dot<Array<T, D>, Output = Array<T, D>> {
-    pub fn dot(&self, other: &Tensor<T, D>)->Tensor<T, D> {
+impl<T, D> Tensor<T, D>
+where
+    T: Float + FromPrimitive,
+    D: Dimension,
+    Array<T, D>: Dot<Array<T, D>, Output = Array<T, D>>,
+{
+    pub fn dot(&self, other: &Tensor<T, D>) -> Tensor<T, D> {
         // NOTE this actually only works with 1D/2D matrices! https://docs.rs/ndarray/latest/ndarray/linalg/trait.Dot.html
         let res = self.data.dot(&other.data);
         Tensor::from(res)
     }
-    pub fn dotInPlace(&mut self, other: &Tensor<T, D>)->&Tensor<T, D> {
-        self.data = self.data.dot(&other.data);
-        self
-    }
 }
 
-
 // TODO other file for ops
-pub fn ones_like<T: Float+FromPrimitive, D: Dimension>(t: &Tensor<T, D>) -> Tensor<T, D> {
+pub fn ones_like<T: Float + FromPrimitive, D: Dimension>(t: &Tensor<T, D>) -> Tensor<T, D> {
     let data = Array::<T, D>::ones(t.data.raw_dim());
     Tensor::from(data)
 }
-pub fn ones_like_f32<T: Float+FromPrimitive, D: Dimension>(t: &Tensor<T, D>) -> Tensor<f32, D> {
+pub fn ones_like_f32<T: Float + FromPrimitive, D: Dimension>(t: &Tensor<T, D>) -> Tensor<f32, D> {
     let data = Array::<f32, D>::ones(t.data.raw_dim());
     Tensor::from(data)
 }
 
-pub fn zeros_like<T: Float+FromPrimitive, D: Dimension>(t: &Tensor<T, D>) -> Tensor<T, D> {
+pub fn zeros_like<T: Float + FromPrimitive, D: Dimension>(t: &Tensor<T, D>) -> Tensor<T, D> {
     let data = Array::<T, D>::zeros(t.data.raw_dim());
     Tensor::from(data)
 }
@@ -109,7 +114,6 @@ pub fn zeros_like<T: Float+FromPrimitive, D: Dimension>(t: &Tensor<T, D>) -> Ten
 //         Tensor { requires_grad: false, graph: None, data: value, grad: array![[]], name: "".to_string() }
 //     }
 // }
-
 
 #[cfg(test)]
 mod tests {
@@ -129,7 +133,7 @@ mod tests {
 
     #[test]
     fn test_clone_tensor() {
-        let a = array![[1.,2.], [3., 4.]];
+        let a = array![[1., 2.], [3., 4.]];
         let t = Tensor::from(a);
         let t2 = t.clone();
         println!("{:?}, {:?}", ptr::addr_of!(t), ptr::addr_of!(t2));

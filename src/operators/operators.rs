@@ -1,16 +1,15 @@
-use ndarray::{Dimension, IntoDimension};
+use ndarray::linalg::Dot;
+use ndarray::{Array, Dimension};
 use num_traits::{Float, FromPrimitive};
 use std::cell::RefCell;
 use std::rc::Rc;
-use ndarray::Array;
-use ndarray::linalg::Dot;
 
 use crate::autograd::autograd::Node;
 use crate::tensor::tensor::{ones_like_f32, zeros_like, Tensor};
 type SharedPtr<T> = Rc<RefCell<T>>;
 
 // TODO to utils
-fn SharedPtrNew<T>(x: T) -> SharedPtr<T> {
+pub fn shared_ptr_new<T>(x: T) -> SharedPtr<T> {
     Rc::new(RefCell::new(x))
 }
 
@@ -18,41 +17,18 @@ pub trait Operator {
     fn forward<T: Float + FromPrimitive, D: Dimension>(
         &self,
         xs: Vec<SharedPtr<Tensor<T, D>>>,
-    ) -> Tensor<T, D> where Array<T, D>: Dot<Array<T, D>, Output = Array<T, D>>;
+    ) -> Tensor<T, D>
+    where
+        Array<T, D>: Dot<Array<T, D>, Output = Array<T, D>>;
 
     fn backward<T, D>(
         &self,
         xs: Vec<SharedPtr<Tensor<T, D>>>,
-        grad: Option<SharedPtr<Tensor<f32, D>>>,
+        grad: SharedPtr<Tensor<f32, D>>,
     ) -> Vec<SharedPtr<Tensor<f32, D>>>
     where
         T: Float + FromPrimitive,
         D: Dimension;
-
-    fn init_backward_grad<T, D>(
-        &self,
-        vars: &Vec<SharedPtr<Tensor<T, D>>>,
-        grad: Option<SharedPtr<Tensor<f32, D>>>,
-    ) -> Vec<SharedPtr<Tensor<f32, D>>>
-    where
-        T: Float + FromPrimitive,
-        D: Dimension,
-    {
-        // when grad is already defined, we simply unwrap it
-        // otherwise when current Operator is the fist node on which `backward` is called,
-        // we create the default "ones" grad tensor for each of the input vars, knowing
-        // their size
-        match grad {
-            Some(g) => vec![g],
-            None => {
-                let mut grads = Vec::new();
-                for input_var in vars {
-                    grads.push(SharedPtrNew(ones_like_f32(&input_var.borrow())));
-                }
-                grads
-            }
-        }
-    }
 
     // TODO should this function live in autograd? Self isn't even needed!
     fn attach_to_eager_graph<T: Float + FromPrimitive, D: Dimension>(
@@ -74,12 +50,12 @@ pub trait Operator {
             (*x).borrow_mut().graph = None;
         }
         // instatiate new operator node on heap
-        let mut op: SharedPtr<Node<T, D>> = if op_parents.len() > 0 {
+        let op: SharedPtr<Node<T, D>> = if op_parents.len() > 0 {
             // attach to graph by linking its parents!
-            SharedPtrNew(Node::new(operator.into(), vars, Some(op_parents)))
+            shared_ptr_new(Node::new(operator.into(), vars, Some(op_parents)))
         } else {
             // first node in the graph
-            SharedPtrNew(Node::new(operator, vars, None))
+            shared_ptr_new(Node::new(operator, vars, None))
         };
 
         // "attach" output var to graph
@@ -95,15 +71,13 @@ impl Operator for ReLU {
     fn backward<T, D>(
         &self,
         xs: Vec<SharedPtr<Tensor<T, D>>>,
-        grad: Option<SharedPtr<Tensor<f32, D>>>,
+        grad: SharedPtr<Tensor<f32, D>>,
     ) -> Vec<SharedPtr<Tensor<f32, D>>>
     where
         T: Float + FromPrimitive,
         D: Dimension,
     {
-        let grads = self.init_backward_grad(&xs, grad);
         {
-            let grad = &grads[0];
             let x = xs.get(0).unwrap().borrow();
             let mut g: std::cell::RefMut<'_, Tensor<f32, D>> = grad.borrow_mut();
             // TODO grad[x<=0] = 0
@@ -114,7 +88,7 @@ impl Operator for ReLU {
                 }
             }
         }
-        grads
+        vec![grad]
     }
     fn forward<T: Float + FromPrimitive, D: Dimension>(
         &self,
@@ -136,9 +110,23 @@ impl Operator for Linear {
     fn backward<T: Float + FromPrimitive, D: Dimension>(
         &self,
         xs: Vec<SharedPtr<Tensor<T, D>>>,
-        grad: Option<SharedPtr<Tensor<f32, D>>>,
+        grad: SharedPtr<Tensor<f32, D>>,
     ) -> Vec<SharedPtr<Tensor<f32, D>>> {
-        unimplemented!()
+        // if confused->https://leonardoaraujosantos.gitbook.io/artificial-inteligence/machine_learning/deep_learning/fc_layer
+
+        // b and W will surely need grad (NOTE non learned bias not supported)
+        let x: &Tensor<T, D> = &xs[0].borrow();
+        let w: &Tensor<T, D> = &xs[1].borrow();
+        let b: &Tensor<T, D> = &xs[2].borrow();
+        let mut g: &Tensor<f32, D> = &grad.borrow();
+
+        // TODO
+        !unimplemented!()
+        // let dx = g.dot(w);
+        // let dw = x.dot(g);
+        // let db = g;
+
+        // vec![dx, dw, db]
     }
     /**
      * x @ W + b
@@ -146,13 +134,15 @@ impl Operator for Linear {
     fn forward<T: Float + FromPrimitive, D: Dimension>(
         &self,
         xs: Vec<SharedPtr<Tensor<T, D>>>,
-    ) -> Tensor<T, D> where Array<T, D>: Dot<Array<T, D>, Output = Array<T, D>> {
+    ) -> Tensor<T, D>
+    where
+        Array<T, D>: Dot<Array<T, D>, Output = Array<T, D>>,
+    {
         let x: &Tensor<T, D> = &xs[0].borrow();
-        // TODO W must be "casted" to a 2D matrix!
-        let W = xs[1].borrow();
-        let b: &Tensor<T, D>= &xs[2].borrow();
+        let w = xs[1].borrow();
+        let b: &Tensor<T, D> = &xs[2].borrow();
         // x.dot creates new tensor, +b: &Tensor adds b to it in-place
-        x.dot(&W) + b
+        x.dot(&w) + b
     }
 }
 
@@ -166,10 +156,9 @@ pub enum Operators {
 
 impl Into<String> for Operators {
     fn into(self) -> String {
-        match (self) {
+        match self {
             Operators::ReLU(_) => String::from("ReLU"),
             Operators::Linear(_) => String::from("Linear"),
-            _ => panic!("Unknown operator"),
         }
     }
 }
@@ -202,8 +191,12 @@ mod tests {
         let w = Tensor::from(array![[1., 1.], [1., 1.]]);
         let b = Tensor::from(array![[1., 1.]]);
         let x = Tensor::from(array![[1., 1.]]);
-        let linear = Linear{};
-        let xs = vec![Rc::new(RefCell::new(x)), Rc::new(RefCell::new(w)), Rc::new(RefCell::new(b))];
+        let linear = Linear {};
+        let xs = vec![
+            Rc::new(RefCell::new(x)),
+            Rc::new(RefCell::new(w)),
+            Rc::new(RefCell::new(b)),
+        ];
         let res = linear.forward(xs);
         println!("{:?}", res.data);
     }
