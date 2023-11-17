@@ -2,10 +2,13 @@ use ndarray::{Dimension, IntoDimension};
 use num_traits::{Float, FromPrimitive};
 use std::cell::RefCell;
 use std::rc::Rc;
+use ndarray::Array;
+use ndarray::linalg::Dot;
 
 use crate::autograd::autograd::Node;
 use crate::tensor::tensor::{ones_like_f32, zeros_like, Tensor};
 type SharedPtr<T> = Rc<RefCell<T>>;
+
 // TODO to utils
 fn SharedPtrNew<T>(x: T) -> SharedPtr<T> {
     Rc::new(RefCell::new(x))
@@ -15,7 +18,7 @@ pub trait Operator {
     fn forward<T: Float + FromPrimitive, D: Dimension>(
         &self,
         xs: Vec<SharedPtr<Tensor<T, D>>>,
-    ) -> Tensor<T, D>;
+    ) -> Tensor<T, D> where Array<T, D>: Dot<Array<T, D>, Output = Array<T, D>>;
 
     fn backward<T, D>(
         &self,
@@ -143,15 +146,13 @@ impl Operator for Linear {
     fn forward<T: Float + FromPrimitive, D: Dimension>(
         &self,
         xs: Vec<SharedPtr<Tensor<T, D>>>,
-    ) -> Tensor<T, D> {
+    ) -> Tensor<T, D> where Array<T, D>: Dot<Array<T, D>, Output = Array<T, D>> {
         let x: &Tensor<T, D> = &xs[0].borrow();
         // TODO W must be "casted" to a 2D matrix!
         let W = xs[1].borrow();
-
-        unimplemented!();
-        // let b = &xs[2].borrow();
-        // x.data.dot
-        // return x.data.dot(&W) + b;
+        let b: &Tensor<T, D>= &xs[2].borrow();
+        // x.dot creates new tensor, +b: &Tensor adds b to it in-place
+        x.dot(&W) + b
     }
 }
 
@@ -180,7 +181,9 @@ mod tests {
 
     #[test]
     fn test_relu_on_mat() {
-        let a = array![[-1., -2.], [3., 4.]];
+        let mut a = array![[-1., -2.], [3., 4.]];
+        let b = array![[-1., -2.], [3., 4.]];
+        a += &b;
         let mut x = Tensor::from(a);
         x.data.view_mut().into_shape((4)).unwrap()[0] = 1.0;
 
@@ -192,5 +195,16 @@ mod tests {
         assert!(res.requires_grad);
         assert_eq!(res.data, array![[1., 0.,], [3., 4.]]);
         res.backward();
+    }
+
+    #[test]
+    fn test_linear() {
+        let w = Tensor::from(array![[1., 1.], [1., 1.]]);
+        let b = Tensor::from(array![[1., 1.]]);
+        let x = Tensor::from(array![[1., 1.]]);
+        let linear = Linear{};
+        let xs = vec![Rc::new(RefCell::new(x)), Rc::new(RefCell::new(w)), Rc::new(RefCell::new(b))];
+        let res = linear.forward(xs);
+        println!("{:?}", res.data);
     }
 }

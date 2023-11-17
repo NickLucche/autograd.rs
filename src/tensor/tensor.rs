@@ -8,6 +8,10 @@ use crate::autograd::autograd::{Node, backward_algo};
 extern crate num_traits;
 // use num_traits::Num;
 use num_traits::{cast::FromPrimitive, float::Float};
+use super::arithmetic::*;
+
+// trait WellBehavedArray: PartialOrd + Display {}
+// impl<T: PartialOrd + Display> PartialDisplay for T {}
 
 
 type SharedPtr<T> = Rc<RefCell<T>>;
@@ -74,9 +78,12 @@ impl<T, D> Tensor<T, D> where T: Float+FromPrimitive, D: Dimension {
 
 }
 impl<T, D> Tensor<T, D> where T: Float+FromPrimitive, D: Dimension, Array<T, D>: Dot<Array<T, D>, Output = Array<T, D>> {
-    pub fn dot(&mut self, other: &Tensor<T, D>)->&Tensor<T, D> {
+    pub fn dot(&self, other: &Tensor<T, D>)->Tensor<T, D> {
         // NOTE this actually only works with 1D/2D matrices! https://docs.rs/ndarray/latest/ndarray/linalg/trait.Dot.html
-        // TODO in-place
+        let res = self.data.dot(&other.data);
+        Tensor::from(res)
+    }
+    pub fn dotInPlace(&mut self, other: &Tensor<T, D>)->&Tensor<T, D> {
         self.data = self.data.dot(&other.data);
         self
     }
@@ -107,6 +114,7 @@ pub fn zeros_like<T: Float+FromPrimitive, D: Dimension>(t: &Tensor<T, D>) -> Ten
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ndarray::prelude::*;
     use std::ptr;
 
     #[test]
