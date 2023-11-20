@@ -1,5 +1,5 @@
 use ndarray::linalg::Dot;
-use ndarray::{Array, Dimension};
+use ndarray::{Array, Dimension, RemoveAxis};
 use num_traits::{Float, FromPrimitive};
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -21,14 +21,14 @@ pub trait Operator {
     where
         Array<T, D>: Dot<Array<T, D>, Output = Array<T, D>>;
 
-    fn backward<T, D>(
+    fn backward<D>(
         &self,
-        xs: Vec<SharedPtr<Tensor<T, D>>>,
+        xs: Vec<SharedPtr<Tensor<f32, D>>>,
         grad: SharedPtr<Tensor<f32, D>>,
     ) -> Vec<SharedPtr<Tensor<f32, D>>>
     where
-        T: Float + FromPrimitive,
-        D: Dimension;
+        D: Dimension,
+        Array<f32, D>: Dot<Array<f32, D>, Output = Array<f32, D>>;
 
     // TODO should this function live in autograd? Self isn't even needed!
     fn attach_to_eager_graph<T: Float + FromPrimitive, D: Dimension>(
@@ -68,14 +68,14 @@ pub struct Linear;
 
 // TODO solve this variable ordering/naming problem
 impl Operator for ReLU {
-    fn backward<T, D>(
+    fn backward<D>(
         &self,
-        xs: Vec<SharedPtr<Tensor<T, D>>>,
+        xs: Vec<SharedPtr<Tensor<f32, D>>>,
         grad: SharedPtr<Tensor<f32, D>>,
     ) -> Vec<SharedPtr<Tensor<f32, D>>>
     where
-        T: Float + FromPrimitive,
         D: Dimension,
+        Array<f32, D>: Dot<Array<f32, D>, Output = Array<f32, D>>
     {
         {
             let x = xs.get(0).unwrap().borrow();
@@ -83,7 +83,7 @@ impl Operator for ReLU {
             // TODO grad[x<=0] = 0
             // for (i, g_i) in g.data.iter_mut().enumerate() {
             for (g_i, x_i) in g.data.iter_mut().zip(x.data.iter()) {
-                if *x_i <= T::from_f32(0.).unwrap() {
+                if *x_i <= 0.0 {
                     *g_i = 0.0;
                 }
             }
@@ -107,26 +107,30 @@ impl Operator for ReLU {
 }
 
 impl Operator for Linear {
-    fn backward<T: Float + FromPrimitive, D: Dimension>(
+    fn backward<D: Dimension>(
         &self,
-        xs: Vec<SharedPtr<Tensor<T, D>>>,
+        xs: Vec<SharedPtr<Tensor<f32, D>>>,
         grad: SharedPtr<Tensor<f32, D>>,
-    ) -> Vec<SharedPtr<Tensor<f32, D>>> {
+    ) -> Vec<SharedPtr<Tensor<f32, D>>>
+    where
+        Array<f32, D>: Dot<Array<f32, D>, Output = Array<f32, D>>
+    {
         // if confused->https://leonardoaraujosantos.gitbook.io/artificial-inteligence/machine_learning/deep_learning/fc_layer
 
         // b and W will surely need grad (NOTE non learned bias not supported)
-        let x: &Tensor<T, D> = &xs[0].borrow();
-        let w: &Tensor<T, D> = &xs[1].borrow();
-        let b: &Tensor<T, D> = &xs[2].borrow();
-        let mut g: &Tensor<f32, D> = &grad.borrow();
+        let x: &Tensor<f32, D> = &xs[0].borrow();
+        let w: &Tensor<f32, D> = &xs[1].borrow();
+        // let b: &Tensor<f32, D> = &xs[2].borrow();
+        let g: &Tensor<f32, D> = &grad.borrow();
 
-        // TODO
-        !unimplemented!()
-        // let dx = g.dot(w);
+        unimplemented!()
+        // NOTE in the backward pass, since we need to compute grads as f32 (dot runs with float only),
+        // we also need the weights to be f32. In the forward pass (e.g. inference), we can experiment with int only ops
+        // let dx = g.dot(w); // TODO handle traspose with tensorview
         // let dw = x.dot(g);
-        // let db = g;
+        // let db = g.sum_axis(0);
 
-        // vec![dx, dw, db]
+        // vec![dx, dw, db].into_iter().map(|x| shared_ptr_new(x)).collect()
     }
     /**
      * x @ W + b

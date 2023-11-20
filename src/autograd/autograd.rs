@@ -32,10 +32,10 @@ where
     }
 }
 
-pub fn backward_algo<T, D>(node: SharedPtr<Node<T, D>>, prev_grad: SharedPtr<Tensor<f32, D>>)
+pub fn backward_algo<D>(node: SharedPtr<Node<f32, D>>, prev_grad: SharedPtr<Tensor<f32, D>>)
 where
-    T: Float + FromPrimitive,
     D: Dimension,
+    Array<f32, D>: Dot<Array<f32, D>, Output = Array<f32, D>>
 {
     // 1. compute gradient(s) of current operator wrt its input(s)
     let op = &node.borrow().operator;

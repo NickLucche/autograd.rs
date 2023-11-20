@@ -1,7 +1,7 @@
 use crate::autograd::autograd::{backward_algo, Node};
 use crate::operators::operators::shared_ptr_new;
 use ndarray::linalg::Dot;
-use ndarray::{Array, Dimension};
+use ndarray::{array, Array, Array1, Axis, Dimension, RemoveAxis};
 use std::cell::RefCell;
 use std::convert::From;
 use std::ops;
@@ -70,16 +70,13 @@ where
         }
     }
 
-    pub fn backward(&self) {
-        if !self.requires_grad {
-            unimplemented!();
-        }
-        // grad accumulator is always the same size as the output var from which backward is called on!
-        // e.g Loss -> self is a "scalar", prev_grad=1
-        match &self.graph {
-            Some(g) => backward_algo(Rc::clone(g), shared_ptr_new(ones_like_f32(self))),
-            _ => panic!("Variable has no attached graph"),
-        }
+    pub fn t_copy(&mut self) -> &Self {
+        self.data = self.data.t().to_owned();
+        self
+    }
+
+    pub fn sum(&self) -> T {
+        self.data.sum()
     }
 }
 impl<T, D> Tensor<T, D>
@@ -92,6 +89,38 @@ where
         // NOTE this actually only works with 1D/2D matrices! https://docs.rs/ndarray/latest/ndarray/linalg/trait.Dot.html
         let res = self.data.dot(&other.data);
         Tensor::from(res)
+    }
+}
+
+// TODO support f64
+impl<D> Tensor<f32, D>
+where
+    D: Dimension,
+    Array<f32, D>: Dot<Array<f32, D>, Output = Array<f32, D>>,
+{
+    /**
+     * Backward is only implemented for f32 tensors as the whole backward pass is run @floating point precision.  
+     */
+    pub fn backward(&self) {
+        if !self.requires_grad {
+            unimplemented!();
+        }
+        // grad accumulator is always the same size as the output var from which backward is called on!
+        // e.g Loss -> self is a "scalar", prev_grad=1
+        match &self.graph {
+            Some(g) => backward_algo(Rc::clone(g), shared_ptr_new(ones_like_f32(self))),
+            _ => panic!("Variable has no attached graph"),
+        }
+    }
+}
+
+impl<T, D> Tensor<T, D>
+where
+    T: Float + FromPrimitive,
+    D: Dimension + RemoveAxis,
+{
+    pub fn sum_axis(&self, axis: usize) -> Tensor<T, D::Smaller> {
+        Tensor::from(self.data.sum_axis(Axis(axis)))
     }
 }
 
