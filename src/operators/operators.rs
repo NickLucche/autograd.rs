@@ -1,5 +1,5 @@
 use ndarray::linalg::Dot;
-use ndarray::{Array, Dimension, RemoveAxis};
+use ndarray::{Array, Dimension, RemoveAxis, Ix2};
 use num_traits::{Float, FromPrimitive};
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -14,31 +14,28 @@ pub fn shared_ptr_new<T>(x: T) -> SharedPtr<T> {
 }
 
 pub trait Operator {
-    fn forward<T: Float + FromPrimitive, D: Dimension>(
+    fn forward<T: Float + FromPrimitive>(
         &self,
-        xs: Vec<SharedPtr<Tensor<T, D>>>,
-    ) -> Tensor<T, D>
+        xs: Vec<SharedPtr<Tensor<T>>>,
+    ) -> Tensor<T>
     where
-        Array<T, D>: Dot<Array<T, D>, Output = Array<T, D>>;
+        Array<T, Ix2>: Dot<Array<T, Ix2>, Output = Array<T, Ix2>>;
 
-    fn backward<D>(
+    fn backward(
         &self,
-        xs: Vec<SharedPtr<Tensor<f32, D>>>,
-        grad: SharedPtr<Tensor<f32, D>>,
-    ) -> Vec<SharedPtr<Tensor<f32, D>>>
-    where
-        D: Dimension,
-        Array<f32, D>: Dot<Array<f32, D>, Output = Array<f32, D>>;
+        xs: Vec<SharedPtr<Tensor<f32>>>,
+        grad: SharedPtr<Tensor<f32>>,
+    ) -> Vec<SharedPtr<Tensor<f32>>>;
 
     // TODO should this function live in autograd? Self isn't even needed!
-    fn attach_to_eager_graph<T: Float + FromPrimitive, D: Dimension>(
+    fn attach_to_eager_graph<T: Float + FromPrimitive>(
         &self,
-        xs: Vec<SharedPtr<Tensor<T, D>>>,
-        op_output: &mut Tensor<T, D>,
+        xs: Vec<SharedPtr<Tensor<T>>>,
+        op_output: &mut Tensor<T>,
         operator: Operators,
     ) {
         // keep references to operator inputs
-        let mut vars: Vec<SharedPtr<Tensor<T, D>>> = Vec::new();
+        let mut vars: Vec<SharedPtr<Tensor<T>>> = Vec::new();
         let mut op_parents = Vec::new();
         for x in xs.iter() {
             vars.push(Rc::clone(&x));
@@ -50,7 +47,7 @@ pub trait Operator {
             (*x).borrow_mut().graph = None;
         }
         // instatiate new operator node on heap
-        let op: SharedPtr<Node<T, D>> = if op_parents.len() > 0 {
+        let op: SharedPtr<Node<T>> = if op_parents.len() > 0 {
             // attach to graph by linking its parents!
             shared_ptr_new(Node::new(operator.into(), vars, Some(op_parents)))
         } else {
@@ -68,18 +65,15 @@ pub struct Linear;
 
 // TODO solve this variable ordering/naming problem
 impl Operator for ReLU {
-    fn backward<D>(
+    fn backward(
         &self,
-        xs: Vec<SharedPtr<Tensor<f32, D>>>,
-        grad: SharedPtr<Tensor<f32, D>>,
-    ) -> Vec<SharedPtr<Tensor<f32, D>>>
-    where
-        D: Dimension,
-        Array<f32, D>: Dot<Array<f32, D>, Output = Array<f32, D>>
+        xs: Vec<SharedPtr<Tensor<f32>>>,
+        grad: SharedPtr<Tensor<f32>>,
+    ) -> Vec<SharedPtr<Tensor<f32>>>
     {
         {
             let x = xs.get(0).unwrap().borrow();
-            let mut g: std::cell::RefMut<'_, Tensor<f32, D>> = grad.borrow_mut();
+            let mut g: std::cell::RefMut<'_, Tensor<f32>> = grad.borrow_mut();
             // TODO grad[x<=0] = 0
             // for (i, g_i) in g.data.iter_mut().enumerate() {
             for (g_i, x_i) in g.data.iter_mut().zip(x.data.iter()) {
@@ -90,10 +84,10 @@ impl Operator for ReLU {
         }
         vec![grad]
     }
-    fn forward<T: Float + FromPrimitive, D: Dimension>(
+    fn forward<T: Float + FromPrimitive, >(
         &self,
-        xs: Vec<SharedPtr<Tensor<T, D>>>,
-    ) -> Tensor<T, D> {
+        xs: Vec<SharedPtr<Tensor<T>>>,
+    ) -> Tensor<T> {
         let mut t = zeros_like(&xs[0].borrow());
         // TODO in_place: treat x as output and attach it to current op
         for (tv, xv) in t.data.iter_mut().zip(xs[0].borrow().data.iter()) {
@@ -107,22 +101,24 @@ impl Operator for ReLU {
 }
 
 impl Operator for Linear {
-    fn backward<D: Dimension>(
+    fn backward<>(
         &self,
-        xs: Vec<SharedPtr<Tensor<f32, D>>>,
-        grad: SharedPtr<Tensor<f32, D>>,
-    ) -> Vec<SharedPtr<Tensor<f32, D>>>
-    where
-        Array<f32, D>: Dot<Array<f32, D>, Output = Array<f32, D>>
+        xs: Vec<SharedPtr<Tensor<f32>>>,
+        grad: SharedPtr<Tensor<f32>>,
+    ) -> Vec<SharedPtr<Tensor<f32>>>
     {
         // if confused->https://leonardoaraujosantos.gitbook.io/artificial-inteligence/machine_learning/deep_learning/fc_layer
 
         // b and W will surely need grad (NOTE non learned bias not supported)
-        let x: &Tensor<f32, D> = &xs[0].borrow();
-        let w: &Tensor<f32, D> = &xs[1].borrow();
-        // let b: &Tensor<f32, D> = &xs[2].borrow();
-        let g: &Tensor<f32, D> = &grad.borrow();
+        let x: &Tensor<f32> = &xs[0].borrow();
+        let w: &Tensor<f32> = &xs[1].borrow();
+        // let b: &Tensor<f32> = &xs[2].borrow();
+        let g: &Tensor<f32> = &grad.borrow();
 
+        // TODO need to extend the return type, just D means #dims are constant, but
+        // the matrices can be reduced as in here, so we can also have D::Smaller
+        // (unless there's a way to extend it back to D.. like in reshape(-1, 1))
+        // OR use IxDyn and fuck D! https://play.rust-lang.org/?version=stable&mode=debug&edition=2021&gist=b06c8ad8409829a3921e56db18c3d7de
         unimplemented!()
         // NOTE in the backward pass, since we need to compute grads as f32 (dot runs with float only),
         // we also need the weights to be f32. In the forward pass (e.g. inference), we can experiment with int only ops
@@ -135,18 +131,18 @@ impl Operator for Linear {
     /**
      * x @ W + b
      */
-    fn forward<T: Float + FromPrimitive, D: Dimension>(
+    fn forward<T: Float + FromPrimitive, >(
         &self,
-        xs: Vec<SharedPtr<Tensor<T, D>>>,
-    ) -> Tensor<T, D>
+        xs: Vec<SharedPtr<Tensor<T>>>,
+    ) -> Tensor<T>
     where
-        Array<T, D>: Dot<Array<T, D>, Output = Array<T, D>>,
+        Array<T, Ix2>: Dot<Array<T, Ix2>, Output = Array<T, Ix2>>,
     {
-        let x: &Tensor<T, D> = &xs[0].borrow();
-        let w = xs[1].borrow();
-        let b: &Tensor<T, D> = &xs[2].borrow();
+        let x: &Tensor<T> = &xs[0].borrow();
+        let w = &xs[1].borrow();
+        let b: &Tensor<T> = &xs[2].borrow();
         // x.dot creates new tensor, +b: &Tensor adds b to it in-place
-        x.dot(&w) + b
+        x.dot(w) + b
     }
 }
 
@@ -186,7 +182,7 @@ mod tests {
             print!("{}\t", x);
         }
         assert!(res.requires_grad);
-        assert_eq!(res.data, array![[1., 0.,], [3., 4.]]);
+        assert_eq!(res.data.into_dimensionality::<Ix2>().unwrap(), array![[1., 0.,], [3., 4.]]);
         res.backward();
     }
 

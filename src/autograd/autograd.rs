@@ -1,28 +1,27 @@
 use crate::operators::operators::{Operator, Operators};
 use crate::tensor::tensor::Tensor;
 use ndarray::linalg::Dot;
-use ndarray::{Array, Dimension};
+use ndarray::{Array, Dimension, Ix2};
 use num_traits::{Float, FromPrimitive};
 use std::cell::RefCell;
 use std::rc::Rc;
 // NOTE not thread-safe!
 type SharedPtr<T> = Rc<RefCell<T>>;
 
-pub struct Node<T: Float + FromPrimitive, D: Dimension> {
+pub struct Node<T: Float + FromPrimitive> {
     pub operator: Operators,
-    pub variables: Vec<SharedPtr<Tensor<T, D>>>,
-    pub parents: Option<Vec<SharedPtr<Node<T, D>>>>,
+    pub variables: Vec<SharedPtr<Tensor<T>>>,
+    pub parents: Option<Vec<SharedPtr<Node<T>>>>,
 }
 
-impl<T, D> Node<T, D>
+impl<T> Node<T>
 where
     T: Float + FromPrimitive,
-    D: Dimension,
 {
     pub fn new(
         operator: Operators,
-        variables: Vec<SharedPtr<Tensor<T, D>>>,
-        parents: Option<Vec<SharedPtr<Node<T, D>>>>,
+        variables: Vec<SharedPtr<Tensor<T>>>,
+        parents: Option<Vec<SharedPtr<Node<T>>>>,
     ) -> Self {
         Node {
             operator,
@@ -32,10 +31,9 @@ where
     }
 }
 
-pub fn backward_algo<D>(node: SharedPtr<Node<f32, D>>, prev_grad: SharedPtr<Tensor<f32, D>>)
+pub fn backward_algo(node: SharedPtr<Node<f32>>, prev_grad: SharedPtr<Tensor<f32>>)
 where
-    D: Dimension,
-    Array<f32, D>: Dot<Array<f32, D>, Output = Array<f32, D>>
+    Array<f32, Ix2>: Dot<Array<f32, Ix2>, Output = Array<f32, Ix2>>,
 {
     // 1. compute gradient(s) of current operator wrt its input(s)
     let op = &node.borrow().operator;

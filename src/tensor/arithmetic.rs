@@ -13,10 +13,10 @@ use std::ops;
  */
 
 // &A + &B
-impl<T, D> ops::Add<&Tensor<T, D>> for &Tensor<T, D> where T: Float+FromPrimitive, D: Dimension{
-    type Output = Tensor<T, D>;
+impl<T> ops::Add<&Tensor<T>> for &Tensor<T> where T: Float+FromPrimitive{
+    type Output = Tensor<T>;
 
-    fn add(self, rhs: &Tensor<T, D>) -> Self::Output {
+    fn add(self, rhs: &Tensor<T>) -> Self::Output {
         let res = &self.data + &rhs.data;
         Tensor::from(res)
     }
@@ -24,19 +24,19 @@ impl<T, D> ops::Add<&Tensor<T, D>> for &Tensor<T, D> where T: Float+FromPrimitiv
 }
 
 // A + B
-impl<T, D> ops::Add<Tensor<T, D>> for Tensor<T, D> where T: Float+FromPrimitive, D: Dimension{
-    type Output = Tensor<T, D>;
-    fn add(mut self, rhs: Tensor<T, D>) -> Tensor<T, D> {
+impl<T> ops::Add<Tensor<T>> for Tensor<T> where T: Float+FromPrimitive{
+    type Output = Tensor<T>;
+    fn add(mut self, rhs: Tensor<T>) -> Tensor<T> {
         self.data = self.data + &rhs.data;
         self
     }
 }
 
 // &A + B, add(B) for &A
-// impl<T, D> ops::Add<Tensor<T, D>> for &Tensor<T, D> where T: Float+FromPrimitive, D: Dimension{
-//     type Output = Tensor<T, D>;
+// impl<T> ops::Add<Tensor<T>> for &Tensor<T> where T: Float+FromPrimitive{
+//     type Output = Tensor<T>;
 
-//     fn add(mut self, rhs: Tensor<T, D>) -> Self::Output {
+//     fn add(mut self, rhs: Tensor<T>) -> Self::Output {
 //         // FIXME why can I not use this??
 //         // self.data += &rhs.data;
 //         self.data = self.data + &rhs.data;
@@ -45,16 +45,16 @@ impl<T, D> ops::Add<Tensor<T, D>> for Tensor<T, D> where T: Float+FromPrimitive,
 // }
 
 // A + &B, add(&B) for A
-impl<T, D> ops::Add<&Tensor<T, D>> for Tensor<T, D> where T: Float+FromPrimitive, D: Dimension{
-    type Output = Tensor<T, D>;
-    fn add(mut self, rhs: &Tensor<T, D>) -> Self::Output {
+impl<T> ops::Add<&Tensor<T>> for Tensor<T> where T: Float+FromPrimitive{
+    type Output = Tensor<T>;
+    fn add(mut self, rhs: &Tensor<T>) -> Self::Output {
         self.data = self.data + &rhs.data;
         self
     }
 }
 
-// impl<T, D> ops::AddAssign<&Tensor<T, D>> for &Tensor<T, D> where T: Float+FromPrimitive, D: Dimension{
-//     fn add_assign(&mut self, rhs: &Tensor<T, D>) {
+// impl<T> ops::AddAssign<&Tensor<T>> for &Tensor<T> where T: Float+FromPrimitive{
+//     fn add_assign(&mut self, rhs: &Tensor<T>) {
 //         self.data = self.data + &rhs.data;
 //     }
 // }
