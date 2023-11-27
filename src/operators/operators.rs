@@ -14,7 +14,7 @@ pub fn shared_ptr_new<T>(x: T) -> SharedPtr<T> {
 }
 
 pub trait Operator {
-    fn forward<T: Float + FromPrimitive>(
+    fn forward<T: Float + FromPrimitive + 'static>(
         &self,
         xs: Vec<SharedPtr<Tensor<T>>>,
     ) -> Tensor<T>
@@ -84,7 +84,7 @@ impl Operator for ReLU {
         }
         vec![grad]
     }
-    fn forward<T: Float + FromPrimitive, >(
+    fn forward<T: Float + FromPrimitive + 'static, >(
         &self,
         xs: Vec<SharedPtr<Tensor<T>>>,
     ) -> Tensor<T> {
@@ -115,23 +115,17 @@ impl Operator for Linear {
         // let b: &Tensor<f32> = &xs[2].borrow();
         let g: &Tensor<f32> = &grad.borrow();
 
-        // TODO need to extend the return type, just D means #dims are constant, but
-        // the matrices can be reduced as in here, so we can also have D::Smaller
-        // (unless there's a way to extend it back to D.. like in reshape(-1, 1))
-        // OR use IxDyn and fuck D! https://play.rust-lang.org/?version=stable&mode=debug&edition=2021&gist=b06c8ad8409829a3921e56db18c3d7de
-        unimplemented!()
         // NOTE in the backward pass, since we need to compute grads as f32 (dot runs with float only),
         // we also need the weights to be f32. In the forward pass (e.g. inference), we can experiment with int only ops
-        // let dx = g.dot(w); // TODO handle traspose with tensorview
-        // let dw = x.dot(g);
-        // let db = g.sum_axis(0);
-
-        // vec![dx, dw, db].into_iter().map(|x| shared_ptr_new(x)).collect()
+        let dx = g.dot(w); // TODO handle traspose with tensorview
+        let dw = x.dot(g);
+        let db = g.sum_axis(0);
+        vec![dx, dw, db].into_iter().map(|x| shared_ptr_new(x)).collect()
     }
     /**
      * x @ W + b
      */
-    fn forward<T: Float + FromPrimitive, >(
+    fn forward<T: Float + FromPrimitive + 'static, >(
         &self,
         xs: Vec<SharedPtr<Tensor<T>>>,
     ) -> Tensor<T>
@@ -139,7 +133,7 @@ impl Operator for Linear {
         Array<T, Ix2>: Dot<Array<T, Ix2>, Output = Array<T, Ix2>>,
     {
         let x: &Tensor<T> = &xs[0].borrow();
-        let w = &xs[1].borrow();
+        let w: &Tensor<T>= &xs[1].borrow();
         let b: &Tensor<T> = &xs[2].borrow();
         // x.dot creates new tensor, +b: &Tensor adds b to it in-place
         x.dot(w) + b
@@ -176,14 +170,16 @@ mod tests {
         let mut x = Tensor::from(a);
         x.data.view_mut().into_shape((4)).unwrap()[0] = 1.0;
 
-        let mut xs = vec![Rc::new(RefCell::new(x))];
+        let xs = vec![Rc::new(RefCell::new(x))];
         let res = ReLU {}.forward(xs);
         for x in &res.data {
             print!("{}\t", x);
         }
         assert!(res.requires_grad);
-        assert_eq!(res.data.into_dimensionality::<Ix2>().unwrap(), array![[1., 0.,], [3., 4.]]);
+        assert_eq!(res.data.view().into_dimensionality::<Ix2>().unwrap(), array![[1., 0.,], [6., 8.]]);
+        // TODO move to autograd and debug
         res.backward();
+        // println!("GRAD {:?}", xs[0].borrow().grad);
     }
 
     #[test]

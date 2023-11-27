@@ -1,7 +1,7 @@
 use crate::autograd::autograd::{backward_algo, Node};
 use crate::operators::operators::shared_ptr_new;
 use ndarray::linalg::Dot;
-use ndarray::{array, Array, Array1, Axis, Dimension, RemoveAxis, IxDyn, Ix1, ArrayD, Ix2};
+use ndarray::{array, Array, Array1, ArrayD, Axis, Dimension, Ix1, Ix2, IxDyn, RemoveAxis};
 use std::cell::RefCell;
 use std::convert::From;
 use std::ops;
@@ -53,7 +53,7 @@ impl<T: Float + FromPrimitive, D: Dimension> From<Array<T, D>> for Tensor<T> {
 
 impl<T> Tensor<T>
 where
-    T: Float + FromPrimitive
+    T: Float + FromPrimitive,
 {
     pub fn clone(&self) -> Tensor<T>
     where
@@ -92,27 +92,24 @@ where
 }
 impl<T> Tensor<T>
 where
-    T: Float + FromPrimitive,
+    T: Float + FromPrimitive + 'static,
     Array<T, Ix2>: Dot<Array<T, Ix2>, Output = Array<T, Ix2>>,
 {
     pub fn dot(&self, other: &Tensor<T>) -> Tensor<T> {
         // NOTE this actually only works with 1D/2D matrices! https://docs.rs/ndarray/latest/ndarray/linalg/trait.Dot.html
-        // FIXME no clone
-        let own_data = self.data.clone().into_dimensionality::<Ix2>().unwrap();
-        let res = own_data.dot(&other.data.clone().into_dimensionality::<Ix2>().unwrap());
+        // no clone version, operating on views
+        let a = self.data.view().into_dimensionality::<Ix2>().unwrap();
+        let b = other.data.view().into_dimensionality::<Ix2>().unwrap();
+        let res = a.dot(&b);
         Tensor::from(res)
     }
 }
 
-// TODO support f64
-impl Tensor<f32>
-where
-    Array<f32, Ix2>: Dot<Array<f32, Ix2>, Output = Array<f32, Ix2>>,
-{
-    /**
-     * Backward is only implemented for f32 tensors as the whole backward pass is run @floating point precision.  
-     */
-    pub fn backward(&self) {
+trait Backward {
+    fn do_backward(&self);
+}
+impl Backward for Tensor<f32> {
+    fn do_backward(&self) {
         if !self.requires_grad {
             unimplemented!();
         }
@@ -124,10 +121,28 @@ where
         }
     }
 }
+// this is how you would support f32 or f64 backward call
+// impl backwardTrait for Tensor<f64> {
+//     fn do_backward(&self) {
+//
+//     }
+// }
+
+impl Tensor<f32>
+where
+    Array<f32, Ix2>: Dot<Array<f32, Ix2>, Output = Array<f32, Ix2>>,
+{
+    /**
+     * Backward is only implemented for f32 tensors as the whole backward pass is run @floating point precision.
+     */
+    pub fn backward(&self) {
+        self.do_backward()
+    }
+}
 
 impl<T> Tensor<T>
 where
-    T: Float + FromPrimitive
+    T: Float + FromPrimitive,
 {
     pub fn sum_axis(&self, axis: usize) -> Tensor<T> {
         Tensor::from(self.data.sum_axis(Axis(axis)))
