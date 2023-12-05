@@ -10,7 +10,7 @@ type SharedPtr<T> = Rc<RefCell<T>>;
 
 pub struct Node<T: Float + FromPrimitive> {
     pub operator: Operators,
-    pub variables: Vec<SharedPtr<Tensor<T>>>,
+    pub variables: Vec<Tensor<T>>,
     pub parents: Option<Vec<SharedPtr<Node<T>>>>,
 }
 
@@ -20,7 +20,7 @@ where
 {
     pub fn new(
         operator: Operators,
-        variables: Vec<SharedPtr<Tensor<T>>>,
+        variables: Vec<Tensor<T>>,
         parents: Option<Vec<SharedPtr<Node<T>>>>,
     ) -> Self {
         Node {
@@ -31,39 +31,31 @@ where
     }
 }
 
-pub fn backward_algo(node: SharedPtr<Node<f32>>, prev_grad: SharedPtr<Tensor<f32>>)
+pub fn backward_algo(node: SharedPtr<Node<f32>>, prev_grad: Tensor<f32>)
 where
     Array<f32, Ix2>: Dot<Array<f32, Ix2>, Output = Array<f32, Ix2>>,
 {
+    let mut node = node.borrow_mut();
     // 1. compute gradient(s) of current operator wrt its input(s)
-    let op = &node.borrow().operator;
-    // TODO avoid computing grad altogheter if var does not require it
-    let op_inputs = node.borrow().variables.to_vec(); // TODO this does a copy!
-                                                      // manual dispatch with lazy init of grad
+    let op = &node.operator;
+    // TODO avoid computing grad altogether if var does not require it
+    let op_inputs = node.variables.to_vec(); // copy is fine with tensors
+                                             // manual dispatch with lazy init of grad
     let grads = match op {
         Operators::ReLU(op) => op.backward(op_inputs, prev_grad),
         Operators::Linear(op) => op.backward(op_inputs, prev_grad),
     };
     // 2. accumulate gradient on input vars
-    for (i, var) in node.borrow().variables.iter().enumerate() {
+    for (i, var) in node.variables.iter_mut().enumerate() {
         // TODO should I check for `requires_grad` inside accumulate and silently do nothing?
-        if var.borrow().requires_grad {
-            let x = &mut var.borrow_mut();
+        if var.requires_grad {
             // lazy init of x grad when accumulating
-            x.accumulate_grad(&grads[i].borrow());
+            var.accumulate_grad(&grads[i]);
         }
     }
     // 3. recurse on parent nodes
-    for (i, parent) in node
-        .borrow()
-        .parents
-        .as_ref()
-        .unwrap_or(&vec![])
-        .iter()
-        .enumerate()
-    {
-        let g = Rc::clone(&grads[i]);
-        backward_algo(Rc::clone(&parent), g);
+    for (i, parent) in node.parents.as_ref().unwrap_or(&vec![]).iter().enumerate() {
+        backward_algo(Rc::clone(&parent), grads[i].clone()); // safe to clone tensors
     }
 }
 
@@ -79,12 +71,17 @@ mod tests {
         let x = Tensor::from(a);
         let x2 = x.clone();
         // x.data.view_mut().into_shape((4)).unwrap()[0] = 1.0;
-        let xs = vec![Rc::new(RefCell::new(x))];
+        let xs = vec![x];
         let res = ReLU {}.forward(xs);
-        for x in &res.data {
+        for x in res.data().iter() {
             print!("{}\t", x);
         }
         assert_eq!(res.data, x2.data);
         res.backward();
+        // FIXME need to be able to borrow this, problem is that forward takes ownership and doesn't give back
+        let g = &xs[0];
+        println!("GRAD {:?}", xs[0].grad);
+        // println!("GRAD {:?}", x.clone().grad);
+        
     }
 }
