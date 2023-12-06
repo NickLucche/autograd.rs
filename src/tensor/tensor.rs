@@ -40,34 +40,25 @@ pub struct Tensor<T: Float + FromPrimitive> {
     pub requires_grad: bool,
     // TODO rename to graph_node
     pub graph: Option<SharedPtr<Node<T>>>,
-    // graph: Option< Rc<Node> >,
     pub data: SharedPtr<Array<T, IxDyn>>,
-    pub grad: Option<SharedArray<f32>>,
+    // we cant keep an option here because we want our tensor to be safely clonable, and we can't propagate its value to all active copies of tensor   
+    pub grad: SharedPtr<Array<f32, IxDyn>>,
     name: String, // for later use if we want to enforce arg order in ops
 }
 // TODO a .no_grad() can skip graph creation; but by default grad is init lazily
 impl<T: Float + FromPrimitive, D: Dimension> From<Array<T, D>> for Tensor<T> {
     fn from(arr: Array<T, D>) -> Self {
+        let shape = arr.raw_dim().into_dyn();
+        // TODO empty array on grad when requires_grad is false 
         Self {
             graph: None,
             data: shared_ptr_new(arr.into_dyn()),
-            grad: None,           // lazy init
+            grad: shared_ptr_new(ArrayD::<f32>::zeros(shape)),           
             name: "".to_string(), // TODO switch to id?
             requires_grad: true,
         }
     }
 }
-// impl<T: Float + FromPrimitive> From<ArrayD<T>> for Tensor<T> {
-//     fn from(arr: ArrayD<T>) -> Self {
-//         Self {
-//             graph: None,
-//             data: arr,
-//             grad: None, // lazy init
-//             name: "".to_string(),
-//             requires_grad: true,
-//         }
-//     }
-// }
 
 impl<T> Tensor<T>
 where
@@ -93,20 +84,32 @@ where
         self.data.borrow_mut()
     }
 
+    // pub fn grad(&self) -> Ref<ArrayD<f32>> {
+    //     self.grad.borrow()
+    // }
+    // pub fn grad_mut(&self) -> RefMut<ArrayD<f32>> {
+    //     self.grad.borrow_mut()
+    // }
+
     pub fn zero_grad(&mut self) {
         // need to get this first or I get a simultaneous borrow and mutation of an object error..
         let dim = self.data().raw_dim();
-        self.grad = Some(shared_ptr_new(Array::zeros(dim)));
+        self.grad = shared_ptr_new(ArrayD::zeros(dim));
     }
 
     pub fn accumulate_grad<A: Float + FromPrimitive>(&mut self, b: &Tensor<A>) {
-        // if self has no grad, lazy init it here
-        match (&mut self.grad, &b.grad) {
-            (None, Some(b_grad)) => self.grad = Some(deep_copy_shared_array(b_grad)),
-            (Some(a_grad), Some(b_grad)) => add_shared_array_inplace(a_grad, b_grad),
-            (_, None) => {}
-        }
+        let g = &mut self.grad;
+        add_shared_array_inplace(g, &b.grad)
     }
+
+    // pub fn accumulate_grad<A: Float + FromPrimitive>(&mut self, b: &Tensor<A>) {
+    //     // if self has no grad, lazy init it here (old optional way)
+    //     match (&mut self.grad, &b.grad) {
+    //         (None, Some(b_grad)) => self.grad = Some(deep_copy_shared_array(b_grad)),
+    //         (Some(a_grad), Some(b_grad)) => add_shared_array_inplace(a_grad, b_grad),
+    //         (_, None) => {}
+    //     }
+    // }
 
     // TODO use view
     // pub fn t_copy(&mut self) -> &Self {

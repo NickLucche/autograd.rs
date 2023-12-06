@@ -67,21 +67,18 @@ mod tests {
 
     #[test]
     fn test_simple_graph() {
-        let a = array![[0., 1.], [2., 3.]];
+        let a = array![[0., -1.], [2., 3.]];
         let x = Tensor::from(a);
-        let x2 = x.clone();
         // x.data.view_mut().into_shape((4)).unwrap()[0] = 1.0;
         let xs = vec![x];
-        let res = ReLU {}.forward(xs);
+        let res = ReLU {}.forward(xs.clone()); // TODO impl copy?
         for x in res.data().iter() {
             print!("{}\t", x);
         }
-        assert_eq!(res.data, x2.data);
+        assert_eq!(res.data().view().into_dimensionality::<Ix2>().unwrap(), array![[0., 0.,], [2., 3.]]);
         res.backward();
-        // FIXME need to be able to borrow this, problem is that forward takes ownership and doesn't give back
         let g = &xs[0];
         println!("GRAD {:?}", xs[0].grad);
-        // println!("GRAD {:?}", x.clone().grad);
         
     }
 }
