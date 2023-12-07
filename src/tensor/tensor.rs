@@ -41,7 +41,8 @@ pub struct Tensor<T: Float + FromPrimitive> {
     // TODO rename to graph_node
     pub graph: Option<SharedPtr<Node<T>>>,
     pub data: SharedPtr<Array<T, IxDyn>>,
-    // we cant keep an option here because we want our tensor to be safely clonable, and we can't propagate its value to all active copies of tensor   
+    // we cant keep an option here because we want our tensor to be safely clonable, and we can't propagate its value to all active copies of tensor
+    // TODO we can bring optional grad back by using smt akin to a ptr to a heap struct containing a ptr to data and its size, in a rustacean way
     pub grad: SharedPtr<Array<f32, IxDyn>>,
     name: String, // for later use if we want to enforce arg order in ops
 }
@@ -102,6 +103,11 @@ where
         add_shared_array_inplace(g, &b.grad)
     }
 
+    pub fn accumulate_grad_from_grad_tensor(&mut self, grad_tensor: &Tensor<f32>) {
+        let g = &mut self.grad;
+        add_shared_array_inplace(g, &grad_tensor.data)
+    }
+
     // pub fn accumulate_grad<A: Float + FromPrimitive>(&mut self, b: &Tensor<A>) {
     //     // if self has no grad, lazy init it here (old optional way)
     //     match (&mut self.grad, &b.grad) {
@@ -149,6 +155,8 @@ impl Backward for Tensor<f32> {
         // grad accumulator is always the same size as the output var from which backward is called on!
         // e.g Loss -> self is a "scalar", prev_grad=1
         match &self.graph {
+            // FIXME these grad accumulator tensors sure don't need .grad! can you pass around intermediate vars .grad values
+            // instead of these grad tensors??
             Some(g) => backward_algo(Rc::clone(g), ones_like_f32(self)),
             _ => panic!("Variable has no attached graph"),
         }

@@ -29,7 +29,7 @@ pub trait Operator {
     ) {
         let mut op_parents = Vec::new();
         for x in inputs.iter_mut() {
-            if !x.graph.is_none() {
+            if x.graph.is_some() {
                 // input is the result of another op, attach current op to it in the graph (through "parents" nodes)
                 op_parents.push(Rc::clone(x.graph.as_ref().unwrap()));
             }

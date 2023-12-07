@@ -50,12 +50,12 @@ where
         // TODO should I check for `requires_grad` inside accumulate and silently do nothing?
         if var.requires_grad {
             // lazy init of x grad when accumulating
-            var.accumulate_grad(&grads[i]);
+            var.accumulate_grad_from_grad_tensor(&grads[i]);
         }
     }
     // 3. recurse on parent nodes
     for (i, parent) in node.parents.as_ref().unwrap_or(&vec![]).iter().enumerate() {
-        backward_algo(Rc::clone(&parent), grads[i].clone()); // safe to clone tensors
+        backward_algo(Rc::clone(parent), grads[i].clone()); // safe to clone tensors
     }
 }
 
@@ -71,7 +71,7 @@ mod tests {
         let x = Tensor::from(a);
         // x.data.view_mut().into_shape((4)).unwrap()[0] = 1.0;
         let xs = vec![x];
-        let res = ReLU {}.forward(xs.clone()); // TODO impl copy?
+        let res = ReLU{}.forward(xs.clone()); // TODO impl copy?
         for x in res.data().iter() {
             print!("{}\t", x);
         }
