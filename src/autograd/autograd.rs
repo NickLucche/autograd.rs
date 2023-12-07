@@ -62,11 +62,11 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::operators::operators::ReLU;
+    use crate::operators::operators::{ReLU, Linear};
     use ndarray::prelude::*;
 
     #[test]
-    fn test_simple_graph() {
+    fn test_single_node_graph() {
         let a = array![[0., -1.], [2., 3.]];
         let x = Tensor::from(a);
         // x.data.view_mut().into_shape((4)).unwrap()[0] = 1.0;
@@ -78,7 +78,25 @@ mod tests {
         assert_eq!(res.data().view().into_dimensionality::<Ix2>().unwrap(), array![[0., 0.,], [2., 3.]]);
         res.backward();
         let g = &xs[0];
-        println!("GRAD {:?}", xs[0].grad);
-        
+        assert_eq!(g.grad().view().into_dimensionality::<Ix2>().unwrap(), array![[0., 0.,], [1., 1.]]);
+    }
+
+    #[test]
+    fn test_simple_graph() {
+        let x = Tensor::from(array![[0., 1.]]);
+        let x_copy = x.clone();
+        let xs = vec![x];
+        let res = ReLU{}.forward(xs);
+
+        let w = Tensor::from(array![[1., 1.], [1., 1.]]);
+        let b = Tensor::from(array![[1., 1.]]);
+        let xs = vec![res, w, b];
+
+        let res = Linear{}.forward(xs.clone());
+        assert_eq!(res.data().view().into_dimensionality::<Ix2>().unwrap(), array![[2., 2.,]]);
+        res.backward();
+        assert_eq!(x_copy.grad().view().into_dimensionality::<Ix2>().unwrap(), array![[0., 2.]]);
+        assert_eq!(xs[1].grad().view().into_dimensionality::<Ix2>().unwrap(), array![[0., 1.], [0., 1.]]);
+        assert_eq!(xs[2].grad().view().into_dimensionality::<Ix2>().unwrap(), array![[1., 1.]]);
     }
 }

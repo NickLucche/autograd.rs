@@ -85,12 +85,12 @@ where
         self.data.borrow_mut()
     }
 
-    // pub fn grad(&self) -> Ref<ArrayD<f32>> {
-    //     self.grad.borrow()
-    // }
-    // pub fn grad_mut(&self) -> RefMut<ArrayD<f32>> {
-    //     self.grad.borrow_mut()
-    // }
+    pub fn grad(&self) -> Ref<ArrayD<f32>> {
+        self.grad.borrow()
+    }
+    pub fn grad_mut(&self) -> RefMut<ArrayD<f32>> {
+        self.grad.borrow_mut()
+    }
 
     pub fn zero_grad(&mut self) {
         // need to get this first or I get a simultaneous borrow and mutation of an object error..
@@ -122,6 +122,10 @@ where
     //     self.data = self.data.t().to_owned();
     //     self
     // }
+
+    pub fn t_clone(&self) -> Self {
+        Tensor::from(self.data().t().to_owned())
+    }
 
     pub fn sum(&self) -> T {
         self.data().sum()
@@ -155,8 +159,7 @@ impl Backward for Tensor<f32> {
         // grad accumulator is always the same size as the output var from which backward is called on!
         // e.g Loss -> self is a "scalar", prev_grad=1
         match &self.graph {
-            // FIXME these grad accumulator tensors sure don't need .grad! can you pass around intermediate vars .grad values
-            // instead of these grad tensors??
+            // FIXME these grad accumulator tensors sure don't need .grad!
             Some(g) => backward_algo(Rc::clone(g), ones_like_f32(self)),
             _ => panic!("Variable has no attached graph"),
         }
