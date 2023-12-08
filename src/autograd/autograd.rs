@@ -78,7 +78,7 @@ mod tests {
         assert_eq!(res.data().view().into_dimensionality::<Ix2>().unwrap(), array![[0., 0.,], [2., 3.]]);
         res.backward();
         let g = &xs[0];
-        assert_eq!(g.grad().view().into_dimensionality::<Ix2>().unwrap(), array![[0., 0.,], [1., 1.]]);
+        assert_eq!(g.grad().as_ref().unwrap().view().into_dimensionality::<Ix2>().unwrap(), array![[0., 0.,], [1., 1.]]);
     }
 
     #[test]
@@ -95,8 +95,9 @@ mod tests {
         let res = Linear{}.forward(xs.clone());
         assert_eq!(res.data().view().into_dimensionality::<Ix2>().unwrap(), array![[2., 2.,]]);
         res.backward();
-        assert_eq!(x_copy.grad().view().into_dimensionality::<Ix2>().unwrap(), array![[0., 2.]]);
-        assert_eq!(xs[1].grad().view().into_dimensionality::<Ix2>().unwrap(), array![[0., 1.], [0., 1.]]);
-        assert_eq!(xs[2].grad().view().into_dimensionality::<Ix2>().unwrap(), array![[1., 1.]]);
+        assert_eq!(x_copy.grad().as_ref().unwrap().view().into_dimensionality::<Ix2>().unwrap(), array![[0., 2.]]);
+        assert_eq!(xs[1].grad().as_ref().unwrap().view().into_dimensionality::<Ix2>().unwrap(), array![[0., 1.], [0., 1.]]);
+        // TODO should we reshape to 2dim?
+        assert_eq!(xs[2].grad().as_ref().unwrap().view().into_dimensionality::<Ix1>().unwrap(), array![1., 1.]);
     }
 }

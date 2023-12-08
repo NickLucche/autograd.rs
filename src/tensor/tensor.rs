@@ -43,18 +43,18 @@ pub struct Tensor<T: Float + FromPrimitive> {
     pub data: SharedPtr<Array<T, IxDyn>>,
     // we cant keep an option here because we want our tensor to be safely clonable, and we can't propagate its value to all active copies of tensor
     // TODO we can bring optional grad back by using smt akin to a ptr to a heap struct containing a ptr to data and its size, in a rustacean way
-    pub grad: SharedPtr<Array<f32, IxDyn>>,
+    pub grad: SharedPtr<Option<Array<f32, IxDyn>>>,
     name: String, // for later use if we want to enforce arg order in ops
 }
 // TODO a .no_grad() can skip graph creation; but by default grad is init lazily
 impl<T: Float + FromPrimitive, D: Dimension> From<Array<T, D>> for Tensor<T> {
     fn from(arr: Array<T, D>) -> Self {
         let shape = arr.raw_dim().into_dyn();
-        // TODO empty array on grad when requires_grad is false 
+        // TODO requires_grad false constructor
         Self {
             graph: None,
             data: shared_ptr_new(arr.into_dyn()),
-            grad: shared_ptr_new(ArrayD::<f32>::zeros(shape)),           
+            grad: shared_ptr_new(None),
             name: "".to_string(), // TODO switch to id?
             requires_grad: true,
         }
@@ -85,37 +85,41 @@ where
         self.data.borrow_mut()
     }
 
-    pub fn grad(&self) -> Ref<ArrayD<f32>> {
+    pub fn grad(&self) -> Ref<Option<ArrayD<f32>>> {
         self.grad.borrow()
     }
-    pub fn grad_mut(&self) -> RefMut<ArrayD<f32>> {
+    pub fn grad_mut(&self) -> RefMut<Option<ArrayD<f32>>> {
         self.grad.borrow_mut()
     }
 
     pub fn zero_grad(&mut self) {
         // need to get this first or I get a simultaneous borrow and mutation of an object error..
         let dim = self.data().raw_dim();
-        self.grad = shared_ptr_new(ArrayD::zeros(dim));
+        *self.grad.borrow_mut() = Some(ArrayD::zeros(dim));
     }
 
     pub fn accumulate_grad<A: Float + FromPrimitive>(&mut self, b: &Tensor<A>) {
-        let g = &mut self.grad;
-        add_shared_array_inplace(g, &b.grad)
+        // if self has no grad, lazy init it here
+        let mut a_grad = self.grad_mut();
+        let b_grad = b.grad();
+
+        match (&mut *a_grad, &*b_grad) {
+            (None, Some(b_grad_val)) => *a_grad = Some(b_grad_val.to_owned()),
+            (Some(a_grad_val), Some(b_grad_val)) => *a_grad_val += b_grad_val,
+            (_, None) => {}
+        }
     }
 
     pub fn accumulate_grad_from_grad_tensor(&mut self, grad_tensor: &Tensor<f32>) {
-        let g = &mut self.grad;
-        add_shared_array_inplace(g, &grad_tensor.data)
-    }
+        // same as above, but we use grad_tensor `.data` and hence assume it's present
+        let mut a_grad = self.grad_mut();
+        let b_grad = grad_tensor.data();
 
-    // pub fn accumulate_grad<A: Float + FromPrimitive>(&mut self, b: &Tensor<A>) {
-    //     // if self has no grad, lazy init it here (old optional way)
-    //     match (&mut self.grad, &b.grad) {
-    //         (None, Some(b_grad)) => self.grad = Some(deep_copy_shared_array(b_grad)),
-    //         (Some(a_grad), Some(b_grad)) => add_shared_array_inplace(a_grad, b_grad),
-    //         (_, None) => {}
-    //     }
-    // }
+        match &mut *a_grad {
+            None => *a_grad = Some(b_grad.to_owned()),
+            Some(a_grad_val) => *a_grad_val += &*b_grad,
+        }
+    }
 
     // TODO use view
     // pub fn t_copy(&mut self) -> &Self {
@@ -159,7 +163,7 @@ impl Backward for Tensor<f32> {
         // grad accumulator is always the same size as the output var from which backward is called on!
         // e.g Loss -> self is a "scalar", prev_grad=1
         match &self.graph {
-            // FIXME these grad accumulator tensors sure don't need .grad!
+            // these grad accumulator tensors don't need .grad, hence its value remains None!
             Some(g) => backward_algo(Rc::clone(g), ones_like_f32(self)),
             _ => panic!("Variable has no attached graph"),
         }

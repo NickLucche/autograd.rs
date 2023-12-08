@@ -107,7 +107,7 @@ impl Operator for Linear {
 
         // NOTE in the backward pass, since we need to compute grads as f32 (dot runs with float only),
         // we also need the weights to be f32. In the forward pass (e.g. inference), we can experiment with int only ops
-        let dx = g.dot(w); // TODO handle traspose with tensorview
+        let dx = g.dot(w); // TODO handle transpose with tensorview
         let dw = g.t_clone().dot(x);
         let db = g.sum_axis(0);
         vec![dx, dw, db]
