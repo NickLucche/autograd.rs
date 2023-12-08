@@ -1,28 +1,27 @@
 use crate::operators::operators::{Operator, Operators};
 use crate::tensor::tensor::Tensor;
 use ndarray::linalg::Dot;
-use ndarray::{Array, Dimension};
+use ndarray::{Array, Dimension, Ix2};
 use num_traits::{Float, FromPrimitive};
 use std::cell::RefCell;
 use std::rc::Rc;
 // NOTE not thread-safe!
 type SharedPtr<T> = Rc<RefCell<T>>;
 
-pub struct Node<T: Float + FromPrimitive, D: Dimension> {
+pub struct Node<T: Float + FromPrimitive> {
     pub operator: Operators,
-    pub variables: Vec<SharedPtr<Tensor<T, D>>>,
-    pub parents: Option<Vec<SharedPtr<Node<T, D>>>>,
+    pub variables: Vec<Tensor<T>>,
+    pub parents: Option<Vec<SharedPtr<Node<T>>>>,
 }
 
-impl<T, D> Node<T, D>
+impl<T> Node<T>
 where
     T: Float + FromPrimitive,
-    D: Dimension,
 {
     pub fn new(
         operator: Operators,
-        variables: Vec<SharedPtr<Tensor<T, D>>>,
-        parents: Option<Vec<SharedPtr<Node<T, D>>>>,
+        variables: Vec<Tensor<T>>,
+        parents: Option<Vec<SharedPtr<Node<T>>>>,
     ) -> Self {
         Node {
             operator,
@@ -32,61 +31,72 @@ where
     }
 }
 
-pub fn backward_algo<D>(node: SharedPtr<Node<f32, D>>, prev_grad: SharedPtr<Tensor<f32, D>>)
+pub fn backward_algo(node: SharedPtr<Node<f32>>, prev_grad: Tensor<f32>)
 where
-    D: Dimension,
-    Array<f32, D>: Dot<Array<f32, D>, Output = Array<f32, D>>
+    Array<f32, Ix2>: Dot<Array<f32, Ix2>, Output = Array<f32, Ix2>>,
 {
+    let mut node = node.borrow_mut();
     // 1. compute gradient(s) of current operator wrt its input(s)
-    let op = &node.borrow().operator;
-    // TODO avoid computing grad altogheter if var does not require it
-    let op_inputs = node.borrow().variables.to_vec(); // TODO this does a copy!
-                                                      // manual dispatch with lazy init of grad
+    let op = &node.operator;
+    // TODO avoid computing grad altogether if var does not require it
+    let op_inputs = node.variables.to_vec(); // copy is fine with tensors
+                                             // manual dispatch with lazy init of grad
     let grads = match op {
         Operators::ReLU(op) => op.backward(op_inputs, prev_grad),
         Operators::Linear(op) => op.backward(op_inputs, prev_grad),
     };
     // 2. accumulate gradient on input vars
-    for (i, var) in node.borrow().variables.iter().enumerate() {
+    for (i, var) in node.variables.iter_mut().enumerate() {
         // TODO should I check for `requires_grad` inside accumulate and silently do nothing?
-        if var.borrow().requires_grad {
-            let x = &mut var.borrow_mut();
+        if var.requires_grad {
             // lazy init of x grad when accumulating
-            x.accumulate_grad(&grads[i].borrow());
+            var.accumulate_grad_from_grad_tensor(&grads[i]);
         }
     }
     // 3. recurse on parent nodes
-    for (i, parent) in node
-        .borrow()
-        .parents
-        .as_ref()
-        .unwrap_or(&vec![])
-        .iter()
-        .enumerate()
-    {
-        let g = Rc::clone(&grads[i]);
-        backward_algo(Rc::clone(&parent), g);
+    for (i, parent) in node.parents.as_ref().unwrap_or(&vec![]).iter().enumerate() {
+        backward_algo(Rc::clone(parent), grads[i].clone()); // safe to clone tensors
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::operators::operators::ReLU;
+    use crate::operators::operators::{ReLU, Linear};
     use ndarray::prelude::*;
 
     #[test]
-    fn test_simple_graph() {
-        let a = array![[0., 1.], [2., 3.]];
+    fn test_single_node_graph() {
+        let a = array![[0., -1.], [2., 3.]];
         let x = Tensor::from(a);
-        let x2 = x.clone();
         // x.data.view_mut().into_shape((4)).unwrap()[0] = 1.0;
-        let xs = vec![Rc::new(RefCell::new(x))];
-        let res = ReLU {}.forward(xs);
-        for x in &res.data {
+        let xs = vec![x];
+        let res = ReLU{}.forward(xs.clone()); // TODO impl copy?
+        for x in res.data().iter() {
             print!("{}\t", x);
         }
-        assert_eq!(res.data, x2.data);
+        assert_eq!(res.data().view().into_dimensionality::<Ix2>().unwrap(), array![[0., 0.,], [2., 3.]]);
         res.backward();
+        let g = &xs[0];
+        assert_eq!(g.grad().view().into_dimensionality::<Ix2>().unwrap(), array![[0., 0.,], [1., 1.]]);
+    }
+
+    #[test]
+    fn test_simple_graph() {
+        let x = Tensor::from(array![[0., 1.]]);
+        let x_copy = x.clone();
+        let xs = vec![x];
+        let res = ReLU{}.forward(xs);
+
+        let w = Tensor::from(array![[1., 1.], [1., 1.]]);
+        let b = Tensor::from(array![[1., 1.]]);
+        let xs = vec![res, w, b];
+
+        let res = Linear{}.forward(xs.clone());
+        assert_eq!(res.data().view().into_dimensionality::<Ix2>().unwrap(), array![[2., 2.,]]);
+        res.backward();
+        assert_eq!(x_copy.grad().view().into_dimensionality::<Ix2>().unwrap(), array![[0., 2.]]);
+        assert_eq!(xs[1].grad().view().into_dimensionality::<Ix2>().unwrap(), array![[0., 1.], [0., 1.]]);
+        assert_eq!(xs[2].grad().view().into_dimensionality::<Ix2>().unwrap(), array![[1., 1.]]);
     }
 }
