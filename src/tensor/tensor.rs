@@ -13,7 +13,6 @@ extern crate num_traits;
 // use num_traits::Num;
 use super::arithmetic::*;
 use num_traits::{cast::FromPrimitive, float::Float};
-use crate::utils::utils::Primitive;
 
 // trait WellBehavedArray<T, D> where T: Float+FromPrimitive, D: Dimension, Array<T, D>: Dot<Array<T, D>, Output = Array<T, D>> {}
 // trait WellBehavedArray: PartialOrd + Display {}
