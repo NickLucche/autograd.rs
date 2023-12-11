@@ -1,9 +1,7 @@
 use crate::autograd::autograd::{backward_algo, Node};
 use crate::operators::operators::shared_ptr_new;
 use ndarray::linalg::Dot;
-use ndarray::{
-    array, Array, ArrayD, ArrayView, ArrayViewMut, Axis, Dimension, Ix2, IxDyn, RemoveAxis,
-};
+use ndarray::{array, Array, ArrayD, ArrayView, ArrayViewMut, Axis, Dimension, Ix2, IxDyn};
 use std::cell::{Ref, RefCell, RefMut};
 use std::convert::From;
 use std::ops;
@@ -12,6 +10,7 @@ use std::rc::Rc;
 extern crate num_traits;
 // use num_traits::Num;
 use super::arithmetic::*;
+use super::init::{kaiming_uniform, uniform};
 use num_traits::{cast::FromPrimitive, float::Float};
 
 // trait WellBehavedArray<T, D> where T: Float+FromPrimitive, D: Dimension, Array<T, D>: Dot<Array<T, D>, Output = Array<T, D>> {}
@@ -44,7 +43,7 @@ pub struct Tensor<T: Float + FromPrimitive> {
     pub grad: SharedPtr<Option<Array<f32, IxDyn>>>,
     name: String, // for later use if we want to enforce arg order in ops
 }
-// TODO a .no_grad() can skip graph creation; but by default grad is init lazily
+// TODO a .no_grad() to set all to requires_grad to false
 impl<T: Float + FromPrimitive, D: Dimension> From<Array<T, D>> for Tensor<T> {
     fn from(arr: Array<T, D>) -> Self {
         let shape = arr.raw_dim().into_dyn();
@@ -63,6 +62,23 @@ impl<T> Tensor<T>
 where
     T: Float + FromPrimitive,
 {
+    pub fn ones(shape: &[usize]) -> Self {
+        Self {
+            graph: None,
+            data: shared_ptr_new(ArrayD::<T>::ones(IxDyn(&shape))),
+            grad: shared_ptr_new(None),
+            name: "".to_string(),
+            requires_grad: true,
+        }
+    }
+
+    pub fn uniform(tensor_shape: &[usize], low: f32, high: f32) -> Tensor<f32> {
+        uniform(tensor_shape, low, high)
+    }
+    
+    pub fn kaiming_uniform(tensor_shape: &[usize]) -> Tensor<f32> {
+        kaiming_uniform(tensor_shape)
+    }
     pub fn to_owned(&self) -> Tensor<T>
     where
         T: Clone,
@@ -133,15 +149,15 @@ where
     pub fn sum(&self) -> T {
         self.data().sum()
     }
-    pub fn powi(&self, exp: i32)->Self {
+    pub fn powi(&self, exp: i32) -> Self {
         Tensor::from(self.data().mapv(|a| a.powi(exp)))
     }
-    pub fn powi_inplace(self, exp: i32)->Self {
+    pub fn powi_inplace(self, exp: i32) -> Self {
         self.data_mut().mapv_inplace(|a| a.powi(exp));
         self
     }
 
-    pub fn as_type<A: Float+FromPrimitive>(&self)->Tensor<A> {
+    pub fn as_type<A: Float + FromPrimitive>(&self) -> Tensor<A> {
         // TODO in-place with cast if possible? https://github.com/rust-ndarray/ndarray/issues/493
         Tensor::from(self.data().mapv(|elem| A::from(elem).unwrap()))
     }
@@ -149,7 +165,6 @@ where
     pub fn fill(&mut self, x: T) {
         self.data_mut().fill(x)
     }
-
 }
 impl<T> Tensor<T>
 where

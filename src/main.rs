@@ -1,6 +1,7 @@
 mod autograd;
 mod operators;
 mod tensor;
+mod nn;
 
 use ndarray::prelude::*;
 use operators::operators::{Operator, ReLU};
