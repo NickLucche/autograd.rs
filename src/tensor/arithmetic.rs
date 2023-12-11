@@ -151,11 +151,36 @@ impl<T> SubAssign<&Tensor<T>> for &Tensor<T> where T: Float+FromPrimitive, Array
     }
 }
 
+impl<T: Float+FromPrimitive> PartialEq<Tensor<T>> for Tensor<T> {
+    fn eq(&self, other: &Tensor<T>) -> bool {
+        *self.data() == *other.data()
+    }
+    fn ne(&self, other: &Tensor<T>) -> bool {
+        *self.data() != *other.data()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ndarray::prelude::*;
+
     #[test]
     fn test_adds(){
-        todo!()
+        let mut a = Tensor::from(ArrayD::<f64>::ones(IxDyn(&[1, 10])));    
+        let b = Tensor::from(ArrayD::<f64>::ones(IxDyn(&[1, 10])) * 2.0);
+        
+        // no copy adds
+        a = a + &b;
+        assert!(a==Tensor::from(ArrayD::<f64>::ones(IxDyn(&[1, 10])) * 3.0));
+        let c: Tensor<f64> = a + b;
+        assert!(c==Tensor::from(ArrayD::<f64>::ones(IxDyn(&[1, 10])) * 5.0));
+        // copy same memory, c mutated as well
+        let mut d = c.clone();
+        d.fill(7.0);
+        assert!(c==d);
+        // new tensor
+        let new_t = &c + &d;
+        assert!(new_t !=c && c==d);
     }
 }

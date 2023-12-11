@@ -146,6 +146,10 @@ where
         Tensor::from(self.data().mapv(|elem| A::from(elem).unwrap()))
     }
 
+    pub fn fill(&mut self, x: T) {
+        self.data_mut().fill(x)
+    }
+
 }
 impl<T> Tensor<T>
 where
