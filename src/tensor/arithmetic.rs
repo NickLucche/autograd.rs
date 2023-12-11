@@ -1,9 +1,8 @@
 use super::tensor::Tensor;
-use crate::operators::operators::shared_ptr_new;
-use ndarray::{Array, ArrayD, Dimension};
+use ndarray::{ArrayD};
 use num_traits::{cast::FromPrimitive, float::Float};
 use std::ops;
-use std::ops::{AddAssign, Sub};
+use std::ops::{AddAssign, Sub, Neg, SubAssign};
 
 /**
 * Arithmetic rules ndarray
@@ -58,7 +57,7 @@ where
 }
 
 // A += &B
-impl<T> ops::AddAssign<&Tensor<T>> for Tensor<T>
+impl<T> AddAssign<&Tensor<T>> for Tensor<T>
 where
     T: Float + FromPrimitive,
     ArrayD<T>: for<'a> AddAssign<&'a ArrayD<T>>,
@@ -91,8 +90,72 @@ where
     }
 }
 
-// impl<T> ops::AddAssign<&Tensor<T>> for &Tensor<T> where T: Float+FromPrimitive{
-//     fn add_assign(&mut self, rhs: &Tensor<T>) {
-//         self.data = self.data + &rhs.data;
-//     }
-// }
+impl<T> Neg for Tensor<T> where
+    T: Float + FromPrimitive
+{
+    type Output = Tensor<T>;
+
+    fn neg(self) -> Self::Output {
+        // copies data array, ignores grad
+        Tensor::from(-self.data().to_owned())
+    }
+}
+impl<T> Neg for &Tensor<T> where
+    T: Float + FromPrimitive
+{
+    type Output = Tensor<T>;
+
+    fn neg(self) -> Self::Output {
+        // copies data array, ignores grad
+        Tensor::from(-self.data().to_owned())
+    }
+}
+
+impl<T> Sub<&Tensor<T>> for Tensor<T>
+    where
+        T: Float + FromPrimitive,
+{
+    type Output = Tensor<T>;
+    fn sub(self, rhs: &Tensor<T>) -> Self::Output {
+        self + (-rhs)
+    }
+}
+impl<T> Sub<Tensor<T>> for Tensor<T>
+    where
+        T: Float + FromPrimitive,
+{
+    type Output = Tensor<T>;
+    fn sub(self, rhs: Tensor<T>) -> Self::Output {
+        self + (-rhs)
+    }
+}
+impl<T> Sub<&Tensor<T>> for &Tensor<T>
+    where
+        T: Float + FromPrimitive,
+{
+    type Output = Tensor<T>;
+    fn sub(self, rhs: &Tensor<T>) -> Self::Output {
+        // avoid creating two new arrays as you would with `self + &(-rhs)`, instead re-use `-rhs`
+        let a = &*self.data();
+        let t = -rhs;
+        t.data_mut().zip_mut_with(a, move |y, &x| *y = x + *y);
+        t
+    }
+}
+
+impl<T> SubAssign<&Tensor<T>> for &Tensor<T> where T: Float+FromPrimitive, ArrayD<T>: for<'a> SubAssign<&'a ArrayD<T>>,{
+    fn sub_assign(&mut self, rhs: &Tensor<T>) {
+        let mut a = self.data_mut();
+        let b = &*rhs.data();
+        *a -= b;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn test_adds(){
+        todo!()
+    }
+}

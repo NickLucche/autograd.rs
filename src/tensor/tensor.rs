@@ -13,6 +13,7 @@ extern crate num_traits;
 // use num_traits::Num;
 use super::arithmetic::*;
 use num_traits::{cast::FromPrimitive, float::Float};
+use crate::utils::utils::Primitive;
 
 // trait WellBehavedArray<T, D> where T: Float+FromPrimitive, D: Dimension, Array<T, D>: Dot<Array<T, D>, Output = Array<T, D>> {}
 // trait WellBehavedArray: PartialOrd + Display {}
@@ -41,8 +42,6 @@ pub struct Tensor<T: Float + FromPrimitive> {
     // TODO rename to graph_node
     pub graph: Option<SharedPtr<Node<T>>>,
     pub data: SharedPtr<Array<T, IxDyn>>,
-    // we cant keep an option here because we want our tensor to be safely clonable, and we can't propagate its value to all active copies of tensor
-    // TODO we can bring optional grad back by using smt akin to a ptr to a heap struct containing a ptr to data and its size, in a rustacean way
     pub grad: SharedPtr<Option<Array<f32, IxDyn>>>,
     name: String, // for later use if we want to enforce arg order in ops
 }
@@ -65,18 +64,19 @@ impl<T> Tensor<T>
 where
     T: Float + FromPrimitive,
 {
-    // pub fn clone(&self) -> Tensor<T>
-    // where
-    //     T: Clone,
-    // {
-    //     Tensor {
-    //         graph: None,
-    //         data: self.data.clone(),
-    //         grad: self.grad.clone(),
-    //         name: self.name.clone(),
-    //         requires_grad: self.requires_grad,
-    //     }
-    // }
+    pub fn to_owned(&self) -> Tensor<T>
+    where
+        T: Clone,
+    {
+        // TODO impl trait
+        Tensor {
+            graph: None,
+            data: self.data.to_owned(),
+            grad: self.grad.to_owned(),
+            name: self.name.to_owned(),
+            requires_grad: self.requires_grad,
+        }
+    }
 
     pub fn data(&self) -> Ref<ArrayD<T>> {
         self.data.borrow()
@@ -134,6 +134,19 @@ where
     pub fn sum(&self) -> T {
         self.data().sum()
     }
+    pub fn powi(&self, exp: i32)->Self {
+        Tensor::from(self.data().mapv(|a| a.powi(exp)))
+    }
+    pub fn powi_inplace(self, exp: i32)->Self {
+        self.data_mut().mapv_inplace(|a| a.powi(exp));
+        self
+    }
+
+    pub fn as_type<A: Float+FromPrimitive>(&self)->Tensor<A> {
+        // TODO in-place with cast if possible? https://github.com/rust-ndarray/ndarray/issues/493
+        Tensor::from(self.data().mapv(|elem| A::from(elem).unwrap()))
+    }
+
 }
 impl<T> Tensor<T>
 where

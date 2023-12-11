@@ -43,11 +43,14 @@ where
                                              // manual dispatch with lazy init of grad
     let grads = match op {
         Operators::ReLU(op) => op.backward(op_inputs, prev_grad),
+        Operators::Sigmoid(op) => op.backward(op_inputs, prev_grad),
+        Operators::MatMul(op) => op.backward(op_inputs, prev_grad),
         Operators::Linear(op) => op.backward(op_inputs, prev_grad),
+        Operators::MeanSquaredError(op) => op.backward(op_inputs, prev_grad),
     };
+    // TODO this assumes that the node computes a gradient for each input! This is not true for e.g losses.. 
     // 2. accumulate gradient on input vars
     for (i, var) in node.variables.iter_mut().enumerate() {
-        // TODO should I check for `requires_grad` inside accumulate and silently do nothing?
         if var.requires_grad {
             // lazy init of x grad when accumulating
             var.accumulate_grad_from_grad_tensor(&grads[i]);

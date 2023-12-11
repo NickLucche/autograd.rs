@@ -51,7 +51,12 @@ pub trait Operator {
 }
 
 pub struct ReLU;
+pub struct Sigmoid;
+pub struct Softmax; // TODO
+pub struct Mean;
+pub struct MeanSquaredError;
 pub struct Linear;
+pub struct MatMul;
 
 // TODO solve this variable ordering/naming problem
 impl Operator for ReLU {
@@ -114,19 +119,93 @@ impl Operator for Linear {
     }
 }
 
+impl Operator for MatMul {
+    fn forward<T: Float + FromPrimitive + 'static>(&self, xs: Vec<Tensor<T>>) -> Tensor<T>
+        where
+            Array<T, Ix2>: Dot<Array<T, Ix2>, Output = Array<T, Ix2>>,
+    {
+        let x: &Tensor<T> = &xs[0];
+        let w: &Tensor<T> = &xs[1];
+        let mut t = x.dot(w);
+        self.attach_to_eager_graph(xs, &mut t, Operators::MatMul(MatMul));
+        t
+    }
+    fn backward(&self, xs: Vec<Tensor<f32>>, grad: Tensor<f32>) -> Vec<Tensor<f32>> {
+        let x: &Tensor<f32> = &xs[0];
+        let w: &Tensor<f32> = &xs[1];
+        let g: &Tensor<f32> = &grad;
+
+        let dx = g.dot(w);
+        let dw = g.t_clone().dot(x);
+        vec![dx, dw]
+    }
+}
+
+impl Operator for Sigmoid {
+    fn forward<T: Float + FromPrimitive + 'static>(&self, xs: Vec<Tensor<T>>) -> Tensor<T>
+    {
+        let x: &Tensor<T> = &xs[0];
+        // TODO too many copies here
+        let t: Tensor<f64> = x.as_type();
+        t.data_mut().mapv_inplace(|x| 1.0/(1.0 + f64::exp(-x)));
+        let mut t: Tensor<T> = t.as_type();
+        self.attach_to_eager_graph(xs, &mut t, Operators::MeanSquaredError(MeanSquaredError));
+        t
+    }
+    fn backward(&self, xs: Vec<Tensor<f32>>, grad: Tensor<f32>) -> Vec<Tensor<f32>> {
+        let pred: &Tensor<f32> = &xs[0];
+        let target: &Tensor<f32> = &xs[1];
+        let g: &Tensor<f32> = &grad;
+        // TODO target needs no grad, we could just return one value and let backward_algo zip
+        // loop over the shortest array (only works if not required var is last,e.g. zip([x1, x2], [g1]))
+        todo!()
+        // vec![dx, dw]
+    }
+}impl Operator for MeanSquaredError {
+    /**
+        np.mean(np.sum((prediction - target) ** 2, axis=1))
+    **/
+    fn forward<T: Float + FromPrimitive + 'static>(&self, xs: Vec<Tensor<T>>) -> Tensor<T>
+        where
+            Array<T, Ix2>: Dot<Array<T, Ix2>, Output = Array<T, Ix2>>,
+    {
+        let pred: &Tensor<T> = &xs[0];
+        let target: &Tensor<T> = &xs[1];
+        let mut t = (pred-target).powi_inplace(2).sum_axis(1);
+        // TODO macro for this?
+        self.attach_to_eager_graph(xs, &mut t, Operators::MeanSquaredError(MeanSquaredError));
+        t
+    }
+    fn backward(&self, xs: Vec<Tensor<f32>>, grad: Tensor<f32>) -> Vec<Tensor<f32>> {
+        let pred: &Tensor<f32> = &xs[0];
+        let target: &Tensor<f32> = &xs[1];
+        let g: &Tensor<f32> = &grad;
+        // TODO target needs no grad, we could just return one value and let backward_algo zip
+        // loop over the shortest array (only works if not required var is last,e.g. zip([x1, x2], [g1]))
+        todo!()
+        // vec![dx, dw]
+    }
+}
+
 // took a while to figure out a way to deal with dispatching and object safety violated due to generics in traits
 // see https://play.rust-lang.org/?version=stable&mode=debug&edition=2021&gist=504f29b8003d70964caee607b5655a88
 // thanks to https://www.possiblerust.com/pattern/3-things-to-try-when-you-can-t-make-a-trait-object#code-1
 pub enum Operators {
     ReLU(ReLU),
+    Sigmoid(Sigmoid),
     Linear(Linear),
+    MatMul(MatMul),
+    MeanSquaredError(MeanSquaredError)
 }
 
 impl Into<String> for Operators {
     fn into(self) -> String {
         match self {
             Operators::ReLU(_) => String::from("ReLU"),
+            Operators::Sigmoid(_) => String::from("Sigmoid"),
             Operators::Linear(_) => String::from("Linear"),
+            Operators::MatMul(_) => String::from("MatMul"),
+            Operators::MeanSquaredError(_) => String::from("MeanSquaredError"),
         }
     }
 }
