@@ -40,7 +40,8 @@ where
     let op = &node.operator;
     // TODO avoid computing grad altogether if var does not require it
     let op_inputs = node.variables.to_vec(); // copy is fine with tensors
-                                             // manual dispatch with lazy init of grad
+
+    // manual dispatch with lazy init of grad
     let grads = match op {
         Operators::ReLU(op) => op.backward(op_inputs, prev_grad),
         Operators::Sigmoid(op) => op.backward(op_inputs, prev_grad),
@@ -48,7 +49,7 @@ where
         Operators::Linear(op) => op.backward(op_inputs, prev_grad),
         Operators::MeanSquaredError(op) => op.backward(op_inputs, prev_grad),
     };
-    // TODO this assumes that the node computes a gradient for each input! This is not true for e.g losses.. 
+    // TODO this assumes that the node computes a gradient for each input! This is not true for e.g losses..
     // 2. accumulate gradient on input vars
     for (i, var) in node.variables.iter_mut().enumerate() {
         if var.requires_grad {
@@ -65,7 +66,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::operators::operators::{ReLU, Linear};
+    use crate::operators::operators::{Linear, ReLU};
     use ndarray::prelude::*;
 
     #[test]
@@ -74,14 +75,25 @@ mod tests {
         let x = Tensor::from(a);
         // x.data.view_mut().into_shape((4)).unwrap()[0] = 1.0;
         let xs = vec![x];
-        let res = ReLU{}.forward(xs.clone()); // TODO impl copy?
+        let res = ReLU {}.forward(xs.clone()); // TODO impl copy?
         for x in res.data().iter() {
             print!("{}\t", x);
         }
-        assert_eq!(res.data().view().into_dimensionality::<Ix2>().unwrap(), array![[0., 0.,], [2., 3.]]);
+        assert_eq!(
+            res.data().view().into_dimensionality::<Ix2>().unwrap(),
+            array![[0., 0.,], [2., 3.]]
+        );
         res.backward();
         let g = &xs[0];
-        assert_eq!(g.grad().as_ref().unwrap().view().into_dimensionality::<Ix2>().unwrap(), array![[0., 0.,], [1., 1.]]);
+        assert_eq!(
+            g.grad()
+                .as_ref()
+                .unwrap()
+                .view()
+                .into_dimensionality::<Ix2>()
+                .unwrap(),
+            array![[0., 0.,], [1., 1.]]
+        );
     }
 
     #[test]
@@ -89,18 +101,48 @@ mod tests {
         let x = Tensor::from(array![[0., 1.]]);
         let x_copy = x.clone();
         let xs = vec![x];
-        let res = ReLU{}.forward(xs);
+        let res = ReLU {}.forward(xs);
 
         let w = Tensor::from(array![[1., 1.], [1., 1.]]);
         let b = Tensor::from(array![[1., 1.]]);
         let xs = vec![res, w, b];
 
-        let res = Linear{}.forward(xs.clone());
-        assert_eq!(res.data().view().into_dimensionality::<Ix2>().unwrap(), array![[2., 2.,]]);
+        let res = Linear {}.forward(xs.clone());
+        assert_eq!(
+            res.data().view().into_dimensionality::<Ix2>().unwrap(),
+            array![[2., 2.,]]
+        );
         res.backward();
-        assert_eq!(x_copy.grad().as_ref().unwrap().view().into_dimensionality::<Ix2>().unwrap(), array![[0., 2.]]);
-        assert_eq!(xs[1].grad().as_ref().unwrap().view().into_dimensionality::<Ix2>().unwrap(), array![[0., 1.], [0., 1.]]);
+        assert_eq!(
+            x_copy
+                .grad()
+                .as_ref()
+                .unwrap()
+                .view()
+                .into_dimensionality::<Ix2>()
+                .unwrap(),
+            array![[0., 2.]]
+        );
+        assert_eq!(
+            xs[1]
+                .grad()
+                .as_ref()
+                .unwrap()
+                .view()
+                .into_dimensionality::<Ix2>()
+                .unwrap(),
+            array![[0., 1.], [0., 1.]]
+        );
         // TODO should we reshape to 2dim?
-        assert_eq!(xs[2].grad().as_ref().unwrap().view().into_dimensionality::<Ix1>().unwrap(), array![1., 1.]);
+        assert_eq!(
+            xs[2]
+                .grad()
+                .as_ref()
+                .unwrap()
+                .view()
+                .into_dimensionality::<Ix1>()
+                .unwrap(),
+            array![1., 1.]
+        );
     }
 }
