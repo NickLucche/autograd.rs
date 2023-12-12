@@ -7,7 +7,7 @@ use crate::{
     tensor::tensor::Tensor,
 };
 
-trait Layer<T: Float + FromPrimitive + 'static> {
+pub trait Layer<T: Float + FromPrimitive + 'static> {
     // ops can either be lazily or eagerly initialized
     fn get_op_subgraph(&self) -> Vec<Operators>;
     fn parameters(&self) -> Vec<Tensor<T>>;
@@ -35,8 +35,11 @@ trait Layer<T: Float + FromPrimitive + 'static> {
     }
 }
 
+#[derive(Copy, Clone)]
 pub struct Identity;
+#[derive(Copy, Clone)]
 pub struct ReLU;
+#[derive(Copy, Clone)]
 pub struct Sigmoid;
 
 impl<T: 'static> Layer<T> for Identity where T: Float+FromPrimitive{
@@ -47,13 +50,13 @@ impl<T: 'static> Layer<T> for Identity where T: Float+FromPrimitive{
         vec![]
     }
 }
-
+#[derive(Clone)]
 pub struct Linear {
     w: Tensor<f32>, // quantized linear will be a different layer
     bias: Tensor<f32>,
 }
 impl Linear {
-    fn new(in_features: usize, out_features: usize, bias: bool) -> Self {
+    pub fn new(in_features: usize, out_features: usize, bias: bool) -> Self {
         // TODO optional bias
         // init from https://pytorch.org/docs/stable/_modules/torch/nn/modules/linear.html#Linear
         let w_shape = &[in_features, out_features];
@@ -91,7 +94,7 @@ impl<T: 'static> Layer<T> for ReLU where T: Float+FromPrimitive{
 }
 impl<T: 'static> Layer<T> for Sigmoid where T: Float+FromPrimitive{
     fn get_op_subgraph(&self) -> Vec<Operators> {
-        vec![Operators::ReLU(operators::operators::ReLU)]
+        vec![Operators::Sigmoid(operators::operators::Sigmoid)]
     }
     fn parameters(&self) -> Vec<Tensor<T>> {
         vec![]
