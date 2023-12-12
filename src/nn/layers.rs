@@ -27,6 +27,7 @@ trait Layer<T: Float + FromPrimitive + 'static> {
                 Operators::MatMul(op) => op.forward(xs),
                 Operators::Linear(op) => op.forward(xs),
                 Operators::MeanSquaredError(op) => op.forward(xs),
+                Operators::Identity(op) => op.forward(xs),
             }];
             res = xs[0].clone();
         }
@@ -35,6 +36,18 @@ trait Layer<T: Float + FromPrimitive + 'static> {
 }
 
 pub struct Identity;
+pub struct ReLU;
+pub struct Sigmoid;
+
+impl<T: 'static> Layer<T> for Identity where T: Float+FromPrimitive{
+    fn get_op_subgraph(&self) -> Vec<Operators> {
+        vec![Operators::Identity(operators::operators::Identity)]
+    }
+    fn parameters(&self) -> Vec<Tensor<T>> {
+        vec![]
+    }
+}
+
 pub struct Linear {
     w: Tensor<f32>, // quantized linear will be a different layer
     bias: Tensor<f32>,
@@ -43,13 +56,13 @@ impl Linear {
     fn new(in_features: usize, out_features: usize, bias: bool) -> Self {
         // TODO optional bias
         // init from https://pytorch.org/docs/stable/_modules/torch/nn/modules/linear.html#Linear
-        let w_shape = &[out_features, in_features];
+        let w_shape = &[in_features, out_features];
         let (fan_in, _) = calculate_fan_in_and_fan_out(w_shape);
         let bound = 1. / f32::sqrt(fan_in as f32);
 
         Linear {
             w: Tensor::<f32>::kaiming_uniform(w_shape),
-            bias: Tensor::<f32>::uniform(w_shape, -bound, bound),
+            bias: Tensor::<f32>::uniform(&[1, out_features], -bound, bound),
         }
     }
 }
@@ -61,13 +74,31 @@ impl Layer<f32> for Linear {
         vec![self.w.clone(), self.bias.clone()]
     }
 
-    fn forward(&self, xs: Vec<Tensor<f32>>) -> Tensor<f32> {
+    fn forward(&self, mut xs: Vec<Tensor<f32>>) -> Tensor<f32> {
         assert!(xs.len() == 1);
-        let mut xwb = self.parameters();
-        xwb.extend(xs);
-        self.forward_default(xwb)
+        xs.extend(self.parameters());
+        self.forward_default(xs)
     }
 }
+
+impl<T: 'static> Layer<T> for ReLU where T: Float+FromPrimitive{
+    fn get_op_subgraph(&self) -> Vec<Operators> {
+        vec![Operators::ReLU(operators::operators::ReLU)]
+    }
+    fn parameters(&self) -> Vec<Tensor<T>> {
+        vec![]
+    }
+}
+impl<T: 'static> Layer<T> for Sigmoid where T: Float+FromPrimitive{
+    fn get_op_subgraph(&self) -> Vec<Operators> {
+        vec![Operators::ReLU(operators::operators::ReLU)]
+    }
+    fn parameters(&self) -> Vec<Tensor<T>> {
+        vec![]
+    }
+}
+
+
 
 
 
@@ -75,9 +106,19 @@ impl Layer<f32> for Linear {
 mod tests {
     use super::*;
     use ndarray::prelude::*;
+    use crate::nn::layers::*;
 
     #[test]
-    fn test_linear(){
-        todo!()
+    fn test_mlp(){
+        let layer1 = Linear::new(20, 10, true);
+        let relu = ReLU{};
+        let layer2 = Linear::new(10, 1, true);
+        let x = Tensor::<f32>::uniform(&[1, 20], -1.0, 1.0);
+
+        let mut res = layer1.forward(vec![x.clone()]);
+        res = relu.forward(vec![res]);
+        res = layer2.forward(vec![res]);
+        res.backward();
+        assert!(*x.grad() != None);
     }
 }

@@ -50,6 +50,7 @@ pub trait Operator {
     }
 }
 
+pub struct Identity;
 pub struct ReLU;
 pub struct Sigmoid;
 pub struct Softmax; // TODO
@@ -112,8 +113,8 @@ impl Operator for Linear {
 
         // NOTE in the backward pass, since we need to compute grads as f32 (dot runs with float only),
         // we also need the weights to be f32. In the forward pass (e.g. inference), we can experiment with int only ops
-        let dx = g.dot(w); // TODO handle transpose with tensorview
-        let dw = g.t_clone().dot(x);
+        let dx = g.dot(&w.t_clone()); // TODO handle transpose with tensorview
+        let dw = x.t_clone().dot(g);
         let db = g.sum_axis(0);
         vec![dx, dw, db]
     }
@@ -161,7 +162,9 @@ impl Operator for Sigmoid {
         todo!()
         // vec![dx, dw]
     }
-}impl Operator for MeanSquaredError {
+}
+
+impl Operator for MeanSquaredError {
     /**
         np.mean(np.sum((prediction - target) ** 2, axis=1))
     **/
@@ -186,7 +189,14 @@ impl Operator for Sigmoid {
         // vec![dx, dw]
     }
 }
-
+impl Operator for Identity {
+    fn forward<T: Float + FromPrimitive + 'static>(&self, xs: Vec<Tensor<T>>) -> Tensor<T> where Array<T, Ix2>: Dot<Array<T, Ix2>, Output=Array<T, Ix2>> {
+        xs[0].clone()
+    }
+    fn backward(&self, xs: Vec<Tensor<f32>>, grad: Tensor<f32>) -> Vec<Tensor<f32>> {
+        vec![grad]
+    }
+}
 // took a while to figure out a way to deal with dispatching and object safety violated due to generics in traits
 // see https://play.rust-lang.org/?version=stable&mode=debug&edition=2021&gist=504f29b8003d70964caee607b5655a88
 // thanks to https://www.possiblerust.com/pattern/3-things-to-try-when-you-can-t-make-a-trait-object#code-1
@@ -195,7 +205,8 @@ pub enum Operators {
     Sigmoid(Sigmoid),
     Linear(Linear),
     MatMul(MatMul),
-    MeanSquaredError(MeanSquaredError)
+    MeanSquaredError(MeanSquaredError),
+    Identity(Identity)
 }
 
 impl Into<String> for Operators {
@@ -206,6 +217,7 @@ impl Into<String> for Operators {
             Operators::Linear(_) => String::from("Linear"),
             Operators::MatMul(_) => String::from("MatMul"),
             Operators::MeanSquaredError(_) => String::from("MeanSquaredError"),
+            Operators::Identity(_) => String::from("Identity"),
         }
     }
 }

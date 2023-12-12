@@ -48,6 +48,7 @@ where
         Operators::MatMul(op) => op.backward(op_inputs, prev_grad),
         Operators::Linear(op) => op.backward(op_inputs, prev_grad),
         Operators::MeanSquaredError(op) => op.backward(op_inputs, prev_grad),
+        Operators::Identity(op) => op.backward(op_inputs, prev_grad),
     };
     // TODO this assumes that the node computes a gradient for each input! This is not true for e.g losses..
     // 2. accumulate gradient on input vars
@@ -98,12 +99,14 @@ mod tests {
 
     #[test]
     fn test_simple_graph() {
+        // 1x2
         let x = Tensor::from(array![[0., 1.]]);
         let x_copy = x.clone();
         let xs = vec![x];
         let res = ReLU {}.forward(xs);
-
+        // 2x2
         let w = Tensor::from(array![[1., 1.], [1., 1.]]);
+        // 1x2
         let b = Tensor::from(array![[1., 1.]]);
         let xs = vec![res, w, b];
 
@@ -131,7 +134,7 @@ mod tests {
                 .view()
                 .into_dimensionality::<Ix2>()
                 .unwrap(),
-            array![[0., 1.], [0., 1.]]
+            array![[0., 0.], [1., 1.]]
         );
         // TODO should we reshape to 2dim?
         assert_eq!(
