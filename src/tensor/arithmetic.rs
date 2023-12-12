@@ -1,8 +1,8 @@
 use super::tensor::Tensor;
-use ndarray::{ArrayD};
+use ndarray::{ArrayD, ScalarOperand};
 use num_traits::{cast::FromPrimitive, float::Float};
 use std::ops;
-use std::ops::{AddAssign, Sub, Neg, SubAssign};
+use std::ops::{AddAssign, Sub, Neg, SubAssign, Mul, Div, MulAssign, DivAssign};
 
 /**
 * Arithmetic rules ndarray
@@ -160,6 +160,49 @@ impl<T: Float+FromPrimitive> PartialEq<Tensor<T>> for Tensor<T> {
     }
 }
 
+impl<T> Mul<T> for Tensor<T> where
+T: Float+FromPrimitive+ScalarOperand{
+    type Output = Tensor<T>;
+    fn mul(self, rhs: T) -> Self::Output {
+        Tensor::from(self.data().to_owned() * rhs)
+    }
+}impl<T> Mul<T> for &Tensor<T> where
+T: Float+FromPrimitive+ScalarOperand{
+    type Output = Tensor<T>;
+    fn mul(self, rhs: T) -> Self::Output {
+        Tensor::from(self.data().to_owned() * rhs)
+    }
+}
+impl<T> MulAssign<T> for Tensor<T> where
+T: Float+FromPrimitive+ScalarOperand+MulAssign,
+{
+    fn mul_assign(&mut self, rhs: T) {
+        let mut a= self.data_mut();
+        *a *= rhs;
+    }
+}
+impl<T> Div<T> for Tensor<T> where
+T: Float+FromPrimitive+ScalarOperand{
+    type Output = Tensor<T>;
+    fn div(self, rhs: T) -> Self::Output {
+        Tensor::from(self.data().to_owned() / rhs)
+    }
+}impl<T> Div<T> for &Tensor<T> where
+T: Float+FromPrimitive+ScalarOperand{
+    type Output = Tensor<T>;
+    fn div(self, rhs: T) -> Self::Output {
+        Tensor::from(self.data().to_owned() / rhs)
+    }
+}
+impl<T> DivAssign<T> for Tensor<T> where
+    T: Float+FromPrimitive+ScalarOperand+DivAssign,
+{
+    fn div_assign(&mut self, rhs: T) {
+        let mut a= self.data_mut();
+        *a /= rhs;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -182,5 +225,17 @@ mod tests {
         // new tensor
         let new_t = &c + &d;
         assert!(new_t !=c && c==d);
+    }
+    #[test]
+    fn test_scalar_ops(){
+        let mut a = Tensor::from(ArrayD::<f32>::ones(IxDyn(&[1, 10])));
+        let b = Tensor::from(ArrayD::<f32>::ones(IxDyn(&[1, 10])) * 2.0);
+
+        assert!(&a*2.0==b);
+        assert!(a==b/2.0);
+        let c = &a * 2.0;
+        assert!(&a!=&c);
+        a *= 3.0;
+        assert!(a==(Tensor::<f32>::ones(&[1,10]) * 3.0));
     }
 }
