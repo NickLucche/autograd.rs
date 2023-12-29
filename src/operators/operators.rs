@@ -53,7 +53,7 @@ pub trait Operator {
 pub struct Identity;
 pub struct ReLU;
 pub struct Sigmoid;
-pub struct Softmax; // TODO
+pub struct Softmax;
 pub struct Mean;
 pub struct MeanSquaredError;
 pub struct Linear;
@@ -179,7 +179,8 @@ impl Operator for Sigmoid {
 
 impl Operator for MeanSquaredError {
     /**
-        np.mean(np.sum((prediction - target) ** 2, axis=1))
+        Computes np.mean((prediction - target) ** 2), which is Pytorch default (reduction='mean'),
+        with batch dim (0) assumed to be present.
     **/
     fn forward<T: Float + FromPrimitive + 'static>(&self, xs: Vec<Tensor<T>>) -> Tensor<T>
         where
@@ -187,7 +188,7 @@ impl Operator for MeanSquaredError {
     {
         let pred: &Tensor<T> = &xs[0];
         let target: &Tensor<T> = &xs[1];
-        let mut t = (pred-target).powi_inplace(2).sum_axis(1);
+        let mut t = (pred-target).powi_inplace(2).mean(None);
         // TODO macro for this?
         self.attach_to_eager_graph(xs, &mut t, Operators::MeanSquaredError(MeanSquaredError));
         t
@@ -196,10 +197,14 @@ impl Operator for MeanSquaredError {
         let pred: &Tensor<f32> = &xs[0];
         let target: &Tensor<f32> = &xs[1];
         let g: &Tensor<f32> = &grad;
-        // TODO target needs no grad, we could just return one value and let backward_algo zip
+        // batch dim
+        let B = pred.shape()[0] as f32;
+        // g *= 2 / (shape[0])
+        let dpred = (pred-target) * 2.0/B;
+        // self.parents[0].backward(g * (self.parents[0].value - self.parents[1].value)
+        // TODO target needs no grad, we can just return one value and let backward_algo zip
         // loop over the shortest array (only works if not required var is last,e.g. zip([x1, x2], [g1]))
-        todo!()
-        // vec![dx, dw]
+        vec![dpred * g]
     }
 }
 impl Operator for Identity {
@@ -259,9 +264,6 @@ mod tests {
             res.data().view().into_dimensionality::<Ix2>().unwrap(),
             array![[1., 0.,], [6., 8.]]
         );
-
-        // TODO move to autograd and debug
-        res.backward();
     }
 
     #[test]

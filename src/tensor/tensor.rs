@@ -239,8 +239,18 @@ impl<T> Tensor<T>
     where
         T: Float + FromPrimitive,
 {
+    pub fn shape(&self) -> Vec<usize> {
+        self.data().shape().to_owned()
+    }
     pub fn sum_axis(&self, axis: usize) -> Tensor<T> {
         Tensor::from(self.data().sum_axis(Axis(axis)))
+    }
+    pub fn mean(&self, axis: Option<usize>) -> Tensor<T> {
+        // will panic on empty tensors, at least it's consistent with .sum
+        match axis {
+            Some(ax) => Tensor::from(self.data().mean_axis(Axis(ax)).unwrap()),
+            None => Tensor::from(array![self.data().mean().unwrap()])
+        }
     }
 }
 
