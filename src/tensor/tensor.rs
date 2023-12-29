@@ -7,7 +7,9 @@ use std::convert::From;
 use std::ops;
 use std::ops::AddAssign;
 use std::rc::Rc;
+
 extern crate num_traits;
+
 // use num_traits::Num;
 use super::arithmetic::*;
 use super::init::{kaiming_uniform, uniform};
@@ -20,12 +22,14 @@ use num_traits::{cast::FromPrimitive, float::Float};
 // TODO for view+owned, though not elegant https://play.rust-lang.org/?version=stable&mode=debug&edition=2021&gist=4095c89a23a2339a1e7afe3813c9acc3
 type SharedPtr<T> = Rc<RefCell<T>>;
 type SharedArray<T> = SharedPtr<Array<T, IxDyn>>;
+
 fn deep_copy_shared_array<T: Clone>(t: &SharedArray<T>) -> SharedArray<T> {
     shared_ptr_new(t.borrow().to_owned())
 }
+
 fn add_shared_array_inplace<T: Float + FromPrimitive>(a: &mut SharedArray<T>, b: &SharedArray<T>)
-where
-    ArrayD<T>: for<'a> AddAssign<&'a ArrayD<T>>,
+    where
+        ArrayD<T>: for<'a> AddAssign<&'a ArrayD<T>>,
 {
     let mut a_t = a.borrow_mut();
     let b_t = &b.borrow();
@@ -43,6 +47,7 @@ pub struct Tensor<T: Float + FromPrimitive> {
     pub grad: SharedPtr<Option<Array<f32, IxDyn>>>,
     name: String, // for later use if we want to enforce arg order in ops
 }
+
 // TODO a .no_grad() to set all to requires_grad to false
 impl<T: Float + FromPrimitive, D: Dimension> From<Array<T, D>> for Tensor<T> {
     fn from(arr: Array<T, D>) -> Self {
@@ -59,8 +64,8 @@ impl<T: Float + FromPrimitive, D: Dimension> From<Array<T, D>> for Tensor<T> {
 }
 
 impl<T> Tensor<T>
-where
-    T: Float + FromPrimitive,
+    where
+        T: Float + FromPrimitive,
 {
     pub fn ones(shape: &[usize]) -> Self {
         Self {
@@ -75,13 +80,13 @@ where
     pub fn uniform(tensor_shape: &[usize], low: f32, high: f32) -> Tensor<f32> {
         uniform(tensor_shape, low, high)
     }
-    
+
     pub fn kaiming_uniform(tensor_shape: &[usize]) -> Tensor<f32> {
         kaiming_uniform(tensor_shape)
     }
     pub fn to_owned(&self) -> Tensor<T>
-    where
-        T: Clone,
+        where
+            T: Clone,
     {
         // TODO impl trait
         Tensor {
@@ -166,10 +171,11 @@ where
         self.data_mut().fill(x)
     }
 }
+
 impl<T> Tensor<T>
-where
-    T: Float + FromPrimitive + 'static,
-    Array<T, Ix2>: Dot<Array<T, Ix2>, Output = Array<T, Ix2>>,
+    where
+        T: Float + FromPrimitive + 'static,
+        Array<T, Ix2>: Dot<Array<T, Ix2>, Output=Array<T, Ix2>>,
 {
     pub fn dot(&self, other: &Tensor<T>) -> Tensor<T> {
         // NOTE this actually only works with 1D/2D matrices! https://docs.rs/ndarray/latest/ndarray/linalg/trait.Dot.html
@@ -186,6 +192,7 @@ where
 trait Backward {
     fn do_backward(&self);
 }
+
 impl Backward for Tensor<f32> {
     fn do_backward(&self) {
         if !self.requires_grad {
@@ -208,8 +215,8 @@ impl Backward for Tensor<f32> {
 // }
 
 impl Tensor<f32>
-where
-    Array<f32, Ix2>: Dot<Array<f32, Ix2>, Output = Array<f32, Ix2>>,
+    where
+        Array<f32, Ix2>: Dot<Array<f32, Ix2>, Output=Array<f32, Ix2>>,
 {
     /**
      * Backward is only implemented for f32 tensors as the whole backward pass is run @floating point precision.
@@ -220,8 +227,8 @@ where
 }
 
 impl<T> Tensor<T>
-where
-    T: Float + FromPrimitive,
+    where
+        T: Float + FromPrimitive,
 {
     pub fn sum_axis(&self, axis: usize) -> Tensor<T> {
         Tensor::from(self.data().sum_axis(Axis(axis)))
@@ -233,6 +240,7 @@ pub fn ones_like<T: Float + FromPrimitive>(t: &Tensor<T>) -> Tensor<T> {
     let data = ArrayD::<T>::ones(t.data().raw_dim());
     Tensor::from(data)
 }
+
 pub fn ones_like_f32<T: Float + FromPrimitive>(t: &Tensor<T>) -> Tensor<f32> {
     let data = ArrayD::<f32>::ones(t.data().raw_dim());
     Tensor::from(data)
@@ -269,7 +277,13 @@ mod tests {
         let a = array![[1., 2.], [3., 4.]];
         let t = Tensor::from(a);
         let t2 = t.clone();
-        println!("{:?}, {:?}", ptr::addr_of!(t), ptr::addr_of!(t2));
         assert_ne!(ptr::addr_of!(t), ptr::addr_of!(t2));
+
+        let tdata = &*t.data();
+        let tp = tdata as *const ArrayD<f64>;
+        let t2data = &*t2.data();
+        let tp2 = t2data as *const ArrayD<f64>;
+        assert!(tp == tp2);
+        assert_eq!(*t.data(), *t2.data());
     }
 }
