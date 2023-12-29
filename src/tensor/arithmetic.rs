@@ -310,6 +310,9 @@ mod tests {
         assert!(&a != &c);
         a *= 3.0;
         assert!(a == (Tensor::<f32>::ones(&[1, 10]) * 3.0));
+
+        let b = 3.0 - &a;
+        assert!(b == (Tensor::<f32>::zeros(&[1, 10])));
     }
 
     #[test]

@@ -2,7 +2,6 @@ use num_traits::{Float, FromPrimitive};
 use crate::tensor::tensor::Tensor;
 use super::layers::Layer;
 
-// this could also be a trait
 // you have to define the forward on your own
 pub trait NN<T: Float+FromPrimitive+'static>{
     fn layers(&self)->Vec<Box<dyn Layer<T>>>; // TODO experimental use of Box, may have to change for API
@@ -22,7 +21,7 @@ mod tests {
 
     #[test]
     fn test_mlp(){
-        struct MyModel {layer1: Linear, relu: ReLU, layer2: Linear };
+        struct MyModel {layer1: Linear, relu: ReLU, layer2: Linear }
         impl MyModel {
             pub fn new()->Self {
                 let layer1 = Linear::new(20, 10, true);
@@ -47,5 +46,9 @@ mod tests {
         let res = model.forward(vec![x.clone()]);
         assert!(res.data().shape() == &[1,1]);
         assert!(*res.grad()==None);
+        let params_shapes = model.parameters().iter().map(|x| x.data().shape().to_vec()).collect::<Vec<_>>();
+        println!("{:?}", params_shapes);
+        // W_0, b_0 - W_1, b_1
+        assert!(params_shapes == vec![[20, 10], [1, 10], [10, 1], [1, 1]])
     }
 }

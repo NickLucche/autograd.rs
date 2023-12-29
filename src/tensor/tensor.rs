@@ -67,10 +67,19 @@ impl<T> Tensor<T>
     where
         T: Float + FromPrimitive,
 {
+    pub fn zeros(shape: &[usize]) -> Self {
+        Self {
+            graph: None,
+            data: shared_ptr_new(ArrayD::<T>::zeros(IxDyn(shape))),
+            grad: shared_ptr_new(None),
+            name: "".to_string(),
+            requires_grad: true,
+        }
+    }
     pub fn ones(shape: &[usize]) -> Self {
         Self {
             graph: None,
-            data: shared_ptr_new(ArrayD::<T>::ones(IxDyn(&shape))),
+            data: shared_ptr_new(ArrayD::<T>::ones(IxDyn(shape))),
             grad: shared_ptr_new(None),
             name: "".to_string(),
             requires_grad: true,
