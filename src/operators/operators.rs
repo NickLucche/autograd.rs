@@ -142,25 +142,38 @@ impl Operator for MatMul {
     }
 }
 
+impl Sigmoid {
+    pub fn sigmoid_inplace<T:Float+FromPrimitive>(x: &Tensor<T>)->&Tensor<T> {
+        x.data_mut().mapv_inplace(|x| T::from(1.0/(1.0 + f32::exp( -x.to_f32().unwrap() ) )).unwrap());
+        x
+    }    
+    pub fn sigmoid<T:Float+FromPrimitive>(x: &Tensor<T>)->Tensor<T> {
+        let t = x.data_mut().mapv(|x| T::from(1.0/(1.0 + f32::exp( -x.to_f32().unwrap() ) )).unwrap());
+        Tensor::from(t)
+    }
+}
 impl Operator for Sigmoid {
     fn forward<T: Float + FromPrimitive + 'static>(&self, xs: Vec<Tensor<T>>) -> Tensor<T>
     {
         let x: &Tensor<T> = &xs[0];
-        // TODO too many copies here
-        let t: Tensor<f64> = x.as_type();
-        t.data_mut().mapv_inplace(|x| 1.0/(1.0 + f64::exp(-x)));
-        let mut t: Tensor<T> = t.as_type();
-        self.attach_to_eager_graph(xs, &mut t, Operators::MeanSquaredError(MeanSquaredError));
+        // compute sigmoid in f32, then convert value back to T (avoiding `as_type` copy)
+        // |x| 1.0/(1.0 + f64::exp(-x))
+        // TODO inplace version, use x here
+        let mut t = Sigmoid::sigmoid(&x);
+
+        self.attach_to_eager_graph(xs, &mut t, Operators::Sigmoid(Sigmoid));
         t
     }
     fn backward(&self, xs: Vec<Tensor<f32>>, grad: Tensor<f32>) -> Vec<Tensor<f32>> {
-        let pred: &Tensor<f32> = &xs[0];
-        let target: &Tensor<f32> = &xs[1];
         let g: &Tensor<f32> = &grad;
-        // TODO target needs no grad, we could just return one value and let backward_algo zip
-        // loop over the shortest array (only works if not required var is last,e.g. zip([x1, x2], [g1]))
-        todo!()
-        // vec![dx, dw]
+        // sig'(x) = sig(x) * (1 - sig(x)), \frac{d}{dx} \sigma(x) = \sigma(x) \cdot (1 - \sigma(x))
+        // TODO re-use previous result, requires storing ref to "t" above and some api changes
+        // do the following only when inplace is set
+        let x: &Tensor<f32> = &xs[0];
+        let sig = Sigmoid::sigmoid(x);
+        let dx = (1.0 - &sig) * sig;
+        // Tensor * &Tensor, in-place
+        vec![dx * g]
     }
 }
 
