@@ -41,6 +41,8 @@ pub struct Identity;
 pub struct ReLU;
 #[derive(Copy, Clone)]
 pub struct Sigmoid;
+#[derive(Copy, Clone)]
+pub struct MeanSquaredError;
 
 impl<T: 'static> Layer<T> for Identity where T: Float+FromPrimitive{
     fn get_op_subgraph(&self) -> Vec<Operators> {
@@ -95,6 +97,14 @@ impl<T: 'static> Layer<T> for ReLU where T: Float+FromPrimitive{
 impl<T: 'static> Layer<T> for Sigmoid where T: Float+FromPrimitive{
     fn get_op_subgraph(&self) -> Vec<Operators> {
         vec![Operators::Sigmoid(operators::operators::Sigmoid)]
+    }
+    fn parameters(&self) -> Vec<Tensor<T>> {
+        vec![]
+    }
+}
+impl<T: 'static> Layer<T> for MeanSquaredError where T: Float+FromPrimitive{
+    fn get_op_subgraph(&self) -> Vec<Operators> {
+        vec![Operators::MeanSquaredError(operators::operators::MeanSquaredError)]
     }
     fn parameters(&self) -> Vec<Tensor<T>> {
         vec![]

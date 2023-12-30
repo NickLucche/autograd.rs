@@ -10,6 +10,14 @@ pub trait NN<T: Float+FromPrimitive+'static>{
         self.layers().iter().flat_map(|l| l.parameters()).collect()
     }
     fn forward(&self, xs: Vec<Tensor<T>>)->Tensor<T>;
+    fn zero_grad(&self) {
+        for param in self.parameters().iter_mut() {
+            // maintain lazy init even if called first
+            if param.grad().is_some() {
+                param.zero_grad();
+            }
+        }
+    }
 
 }
 
