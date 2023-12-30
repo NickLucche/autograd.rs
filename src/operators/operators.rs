@@ -189,6 +189,7 @@ impl Operator for MeanSquaredError {
         let pred: &Tensor<T> = &xs[0];
         let target: &Tensor<T> = &xs[1];
         let mut t = (pred-target).powi_inplace(2).mean(None);
+        t.reshape(&[1,1]); // mean reduces (rightly) to a scalar, we need 2d
         // TODO macro for this?
         self.attach_to_eager_graph(xs, &mut t, Operators::MeanSquaredError(MeanSquaredError));
         t
@@ -264,6 +265,7 @@ mod tests {
         a += &b;
         let x = Tensor::from(a);
         x.data_mut().view_mut().into_shape(4).unwrap()[0] = 1.0;
+        assert!(x.data()[[0, 0]] == 1.0);
 
         let xs = vec![x];
         let res = ReLU {}.forward(xs);

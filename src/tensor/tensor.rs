@@ -1,10 +1,9 @@
 use crate::autograd::autograd::{backward_algo, Node};
 use crate::operators::operators::shared_ptr_new;
 use ndarray::linalg::Dot;
-use ndarray::{array, Array, ArrayD, ArrayView, ArrayViewMut, Axis, Dimension, Ix2, IxDyn};
+use ndarray::{array, Array, ArrayD, Axis, Dimension, Ix2, IxDyn};
 use std::cell::{Ref, RefCell, RefMut};
 use std::convert::From;
-use std::ops;
 use std::ops::AddAssign;
 use std::rc::Rc;
 
@@ -48,7 +47,7 @@ pub struct Tensor<T: Float + FromPrimitive> {
     name: String, // for later use if we want to enforce arg order in ops
 }
 
-// TODO a .no_grad() to set all to requires_grad to false
+// TODO a .no_grad() to set all to requires_grad to false and NOT create any graph
 impl<T: Float + FromPrimitive, D: Dimension> From<Array<T, D>> for Tensor<T> {
     fn from(arr: Array<T, D>) -> Self {
         let shape = arr.raw_dim().into_dyn();
@@ -242,6 +241,25 @@ impl<T> Tensor<T>
     pub fn shape(&self) -> Vec<usize> {
         self.data().shape().to_owned()
     }
+    pub fn reshape(&mut self, shape: &[usize]) {
+        // we cannot directly modify the stride, so we need another Array which points to the same
+        // storage.. thing is we can't move out the array either so we
+        // have to work around the move by replacing the Rf value with the reshaped Array, which, internally,
+        // is a new ndarray::ArrayBase with new strides but same data pointer; pretty hacky,
+        // might want to integrate with a unified Array/View container so we keep a view here and dont
+        // change every clone
+
+        // can't move with into_inner/take..
+        let array = self.data.replace(ArrayD::<T>::zeros(IxDyn(&[1])));
+
+        let reshaped_array = array.into_shape(shape).unwrap();
+        let _ = self.data.replace(reshaped_array);
+        // similar to
+        // let reshaped_array = unsafe {
+        //  Array::from_shape_vec_unchecked(shape, data_ptr)
+        // };
+        // let old = std::mem::replace(&mut *self.data.borrow_mut(), reshaped_array);
+    }
     pub fn size(&self) -> usize {
         self.len()
     }
@@ -310,5 +328,15 @@ mod tests {
         let tp2 = t2data as *const ArrayD<f64>;
         assert!(tp == tp2);
         assert_eq!(*t.data(), *t2.data());
+    }
+    #[test]
+    fn test_reshape() {
+        let a = array![[1., 2.], [3., 4.]];
+        let t = Tensor::from(a);
+        let mut t2 = t.clone();
+        t2.reshape(&[4]);
+        // all clones of t point to the same storage, which has now been modified
+        // with different shape+stride
+        assert!(t2.shape()==t.shape() && t.shape()==vec![4]);
     }
 }
