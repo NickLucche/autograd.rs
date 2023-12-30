@@ -242,6 +242,12 @@ impl<T> Tensor<T>
     pub fn shape(&self) -> Vec<usize> {
         self.data().shape().to_owned()
     }
+    pub fn size(&self) -> usize {
+        self.len()
+    }
+    pub fn len(&self) -> usize {
+        self.data().len()
+    }
     pub fn sum_axis(&self, axis: usize) -> Tensor<T> {
         Tensor::from(self.data().sum_axis(Axis(axis)))
     }

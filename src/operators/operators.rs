@@ -5,7 +5,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use crate::autograd::autograd::Node;
-use crate::tensor::tensor::{ones_like_f32, zeros_like, Tensor};
+use crate::tensor::tensor::{ones_like_f32, zeros_like, Tensor, ones_like};
 type SharedPtr<T> = Rc<RefCell<T>>;
 
 // TODO to utils
@@ -196,7 +196,6 @@ impl Operator for MeanSquaredError {
     fn backward(&self, xs: Vec<Tensor<f32>>, grad: Tensor<f32>) -> Vec<Tensor<f32>> {
         let pred: &Tensor<f32> = &xs[0];
         let target: &Tensor<f32> = &xs[1];
-        let g: &Tensor<f32> = &grad;
         // batch dim
         let B = pred.shape()[0] as f32;
         // g *= 2 / (shape[0])
@@ -204,8 +203,21 @@ impl Operator for MeanSquaredError {
         // self.parents[0].backward(g * (self.parents[0].value - self.parents[1].value)
         // TODO target needs no grad, we can just return one value and let backward_algo zip
         // loop over the shortest array (only works if not required var is last,e.g. zip([x1, x2], [g1]))
-        vec![dpred * g]
+        vec![dpred * &grad]
     }
+}
+
+impl Operator for Mean {
+    // TODO axis as Mean attribute
+    fn forward<T: Float + FromPrimitive + 'static>(&self, xs: Vec<Tensor<T>>) -> Tensor<T> where Array<T, Ix2>: Dot<Array<T, Ix2>, Output=Array<T, Ix2>> {
+        xs[0].mean(None)
+    }
+    fn backward(&self, xs: Vec<Tensor<f32>>, grad: Tensor<f32>) -> Vec<Tensor<f32>> {
+        let x = &xs[0];
+        let t = ones_like(x) * 1.0/x.size() as f32;
+        vec![t * &grad]
+    }
+
 }
 impl Operator for Identity {
     fn forward<T: Float + FromPrimitive + 'static>(&self, xs: Vec<Tensor<T>>) -> Tensor<T> where Array<T, Ix2>: Dot<Array<T, Ix2>, Output=Array<T, Ix2>> {
