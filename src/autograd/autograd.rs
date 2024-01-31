@@ -52,10 +52,11 @@ where
     };
     // TODO this assumes that the node computes a gradient for each input! This is not true for e.g losses..
     // 2. accumulate gradient on input vars
-    for (i, var) in node.variables.iter_mut().enumerate() {
+    for ( var, grad) in node.variables.iter_mut().zip(grads.iter()) {
+        // println!("GRAD SHAPE {:?}, VAR SHAPE {:?}", grad.shape(), var.shape());
         if var.requires_grad {
             // lazy init of x grad when accumulating
-            var.accumulate_grad_from_grad_tensor(&grads[i]);
+            var.accumulate_grad_from_grad_tensor(grad);
         }
     }
     // 3. recurse on parent nodes
