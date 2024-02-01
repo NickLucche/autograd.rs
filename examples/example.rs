@@ -1,7 +1,7 @@
-mod autograd;
-mod operators;
-mod tensor;
-mod nn;
+use autograd_rs::autograd;
+use autograd_rs::operators;
+use autograd_rs::tensor;
+use autograd_rs::nn;
 
 use ndarray::prelude::*;
 use tensor::tensor::Tensor;
