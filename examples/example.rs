@@ -58,11 +58,15 @@ fn main() {
 
             loss.backward();
 
-            // NOTE would need no_grad if tensor operations generated a graph!
+            // NOTE would need no_grad if tensor operations generated a graph here!
             // ** optimizer step **
             for p in model.parameters().iter_mut() {
-                let new_p = &*p.data() - (p.grad().as_ref().unwrap() * lr);
-                p.data = shared_ptr_new(new_p);
+                // update weight "memory location" so that all clones will have updated weights
+                let mut w = p.data_mut();
+                let w_grad = p.grad();
+                let w_grad_scaled = w_grad.as_ref().unwrap() * lr;
+                // Add/Sub-Assign only implemented for &Array, we need ref here
+                *w -= &w_grad_scaled;
                 // println!("Epoch {epoch} || Param {:?} || New value mean {:?}", p.shape(), p.mean(None).data()[0]);
                 println!("Epoch {epoch} || Param {:?} ", p.shape());
             }
