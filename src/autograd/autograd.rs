@@ -11,7 +11,11 @@ type SharedPtr<T> = Rc<RefCell<T>>;
 pub struct Node<T: Float + FromPrimitive> {
     pub operator: Operators,
     pub variables: Vec<Tensor<T>>,
-    pub parents: Option<Vec<SharedPtr<Node<T>>>>,
+    // keep reference to the op which generated each input var, if any!
+    // (e.g. "weights" have no parent node in graph)
+    // this allows to disambiguate ordering for mixed op results and plain var
+    // inputs e.g MatMul(x, Op(__))!=MatMul(Op(__), x)
+    pub parents: Vec<Option<SharedPtr<Node<T>>>>,
 }
 
 impl<T> Node<T>
@@ -21,13 +25,23 @@ where
     pub fn new(
         operator: Operators,
         variables: Vec<Tensor<T>>,
-        parents: Option<Vec<SharedPtr<Node<T>>>>,
+        parents: Vec<Option<SharedPtr<Node<T>>>>,
     ) -> Self {
         Node {
             operator,
             variables,
             parents,
         }
+    }
+
+    pub fn is_root_node(&self)->bool {
+        // root nodes in graph have no parents
+        for parent in &self.parents {
+            if parent.is_some() {
+                return false;
+            }
+        }
+        true
     }
 }
 
@@ -38,7 +52,7 @@ where
     let mut node = node.borrow_mut();
     // 1. compute gradient(s) of current operator wrt its input(s)
     let op = &node.operator;
-    // TODO avoid computing grad altogether if var does not require it
+    // TODO avoid computing grad altogether if var does not require it: resp would lie with operators
     let op_inputs = node.variables.to_vec(); // copy is fine with tensors
 
     // manual dispatch with lazy init of grad
@@ -51,6 +65,7 @@ where
         Operators::Identity(op) => op.backward(op_inputs, prev_grad),
     };
     // TODO this assumes that the node computes a gradient for each input! This is not true for e.g losses..
+    // can be resolved returning an optional on grad, and do a check if requires_grad within backward to solve todos above
     // 2. accumulate gradient on input vars
     for ( var, grad) in node.variables.iter_mut().zip(grads.iter()) {
         // println!("GRAD SHAPE {:?}, VAR SHAPE {:?}", grad.shape(), var.shape());
@@ -60,8 +75,10 @@ where
         }
     }
     // 3. recurse on parent nodes
-    for (i, parent) in node.parents.as_ref().unwrap_or(&vec![]).iter().enumerate() {
-        backward_algo(Rc::clone(parent), grads[i].clone()); // safe to clone tensors
+    for (i, parent) in node.parents.iter().enumerate() {
+        if let Some(p) = parent {
+            backward_algo(Rc::clone(p), grads[i].clone()); // safe to clone tensors
+        }
     }
 }
 

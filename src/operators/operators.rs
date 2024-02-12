@@ -27,23 +27,18 @@ pub trait Operator {
         op_output: &mut Tensor<T>,
         operator: Operators,
     ) {
-        let mut op_parents = Vec::new();
-        for x in inputs.iter_mut() {
+        // only fill in the parents of those input nodes generated from another Operator ("intermediate" ones)
+        let mut op_parents = vec![None; inputs.len()];
+        for (i, x) in inputs.iter_mut().enumerate() {
             if x.graph.is_some() {
                 // input is the result of another op, attach current op to it in the graph (through "parents" nodes)
-                op_parents.push(Rc::clone(x.graph.as_ref().unwrap()));
+                op_parents[i] = Some(Rc::clone(x.graph.as_ref().unwrap()));
             }
             // drop previous references to the graph: `backwards` can only be called from latest output var (e.g. loss)!
             x.graph = None;
         }
-        // instantiate new operator node on heap
-        let op: SharedPtr<Node<T>> = if op_parents.len() > 0 {
-            // attach to graph by linking its parents!
-            shared_ptr_new(Node::new(operator, inputs.clone(), Some(op_parents)))
-        } else {
-            // first node in the graph
-            shared_ptr_new(Node::new(operator, inputs.clone(), None))
-        };
+        // instantiate new operator node on heap; first node in graph will have all entries in op_parents equal to None
+        let op: SharedPtr<Node<T>> = shared_ptr_new(Node::new(operator, inputs.clone(), op_parents));
 
         // "attach" output var to graph
         op_output.graph = Some(op);
@@ -58,6 +53,7 @@ pub struct Mean;
 pub struct MeanSquaredError;
 pub struct Linear;
 pub struct MatMul;
+pub struct Mul; // TODO elementwise
 
 // TODO solve this variable ordering/naming problem
 impl Operator for ReLU {
@@ -125,6 +121,7 @@ impl Operator for MatMul {
         where
             Array<T, Ix2>: Dot<Array<T, Ix2>, Output = Array<T, Ix2>>,
     {
+        // TODO handle higher dims https://pytorch.org/docs/stable/generated/torch.bmm.html
         let x: &Tensor<T> = &xs[0];
         let w: &Tensor<T> = &xs[1];
         let mut t = x.dot(w);
@@ -177,11 +174,11 @@ impl Operator for Sigmoid {
     }
 }
 
+
+
+/// Computes np.mean((prediction - target) ** 2), which is Pytorch default (reduction='mean'),
+/// with batch dim (0) assumed to be present.
 impl Operator for MeanSquaredError {
-    /**
-        Computes np.mean((prediction - target) ** 2), which is Pytorch default (reduction='mean'),
-        with batch dim (0) assumed to be present.
-    **/
     fn forward<T: Float + FromPrimitive + 'static>(&self, xs: Vec<Tensor<T>>) -> Tensor<T>
         where
             Array<T, Ix2>: Dot<Array<T, Ix2>, Output = Array<T, Ix2>>,
