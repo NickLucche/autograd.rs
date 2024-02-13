@@ -27,6 +27,7 @@ pub trait Layer<T: Float + FromPrimitive + 'static> {
                 Operators::MatMul(op) => op.forward(xs),
                 Operators::Linear(op) => op.forward(xs),
                 Operators::MeanSquaredError(op) => op.forward(xs),
+                Operators::Mean(op) => op.forward(xs),
                 Operators::Identity(op) => op.forward(xs),
             }];
             res = xs[0].clone();
