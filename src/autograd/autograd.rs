@@ -62,6 +62,7 @@ where
         Operators::MatMul(op) => op.backward(op_inputs, prev_grad),
         Operators::Linear(op) => op.backward(op_inputs, prev_grad),
         Operators::MeanSquaredError(op) => op.backward(op_inputs, prev_grad),
+        Operators::Mean(op) => op.backward(op_inputs, prev_grad),
         Operators::Identity(op) => op.backward(op_inputs, prev_grad),
     };
     // TODO this assumes that the node computes a gradient for each input! This is not true for e.g losses..

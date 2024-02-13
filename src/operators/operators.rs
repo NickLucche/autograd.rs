@@ -208,7 +208,9 @@ impl Operator for MeanSquaredError {
 impl Operator for Mean {
     // TODO axis as Mean attribute
     fn forward<T: Float + FromPrimitive + 'static>(&self, xs: Vec<Tensor<T>>) -> Tensor<T> where Array<T, Ix2>: Dot<Array<T, Ix2>, Output=Array<T, Ix2>> {
-        xs[0].mean(None)
+        let mut t = xs[0].mean(None);
+        self.attach_to_eager_graph(xs, &mut t, Operators::Mean(Mean));
+        t
     }
     fn backward(&self, xs: Vec<Tensor<f32>>, grad: Tensor<f32>) -> Vec<Tensor<f32>> {
         let x = &xs[0];
@@ -219,7 +221,9 @@ impl Operator for Mean {
 }
 impl Operator for Identity {
     fn forward<T: Float + FromPrimitive + 'static>(&self, xs: Vec<Tensor<T>>) -> Tensor<T> where Array<T, Ix2>: Dot<Array<T, Ix2>, Output=Array<T, Ix2>> {
-        xs[0].clone()
+        let mut t = xs[0].clone();
+        self.attach_to_eager_graph(xs, &mut t, Operators::Identity(Identity));
+        t
     }
     fn backward(&self, xs: Vec<Tensor<f32>>, grad: Tensor<f32>) -> Vec<Tensor<f32>> {
         vec![grad]
@@ -234,6 +238,7 @@ pub enum Operators {
     Linear(Linear),
     MatMul(MatMul),
     MeanSquaredError(MeanSquaredError),
+    Mean(Mean),
     Identity(Identity)
 }
 
@@ -245,6 +250,7 @@ impl Into<String> for Operators {
             Operators::Linear(_) => String::from("Linear"),
             Operators::MatMul(_) => String::from("MatMul"),
             Operators::MeanSquaredError(_) => String::from("MeanSquaredError"),
+            Operators::Mean(_) => String::from("Mean"),
             Operators::Identity(_) => String::from("Identity"),
         }
     }
