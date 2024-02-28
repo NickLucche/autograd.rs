@@ -44,6 +44,8 @@ pub struct ReLU;
 pub struct Sigmoid;
 #[derive(Copy, Clone)]
 pub struct MeanSquaredError;
+#[derive(Copy, Clone)]
+pub struct Conv2D;
 
 impl<T: 'static> Layer<T> for Identity where T: Float+FromPrimitive{
     fn get_op_subgraph(&self) -> Vec<Operators> {
@@ -109,6 +111,18 @@ impl<T: 'static> Layer<T> for MeanSquaredError where T: Float+FromPrimitive{
     }
     fn parameters(&self) -> Vec<Tensor<T>> {
         vec![]
+    }
+}
+impl<T: 'static> Layer<T> for Conv2D where T: Float+FromPrimitive{
+    fn get_op_subgraph(&self) -> Vec<Operators> {
+        vec![Operators::MeanSquaredError(operators::operators::MeanSquaredError)]
+    }
+    fn parameters(&self) -> Vec<Tensor<T>> {
+        vec![]
+    }
+    fn forward(&self, xs: Vec<Tensor<T>>) -> Tensor<T> {
+        // check input is BCHW
+        todo!()
     }
 }
 

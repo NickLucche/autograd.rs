@@ -75,7 +75,7 @@ pub mod export {
     }
 
     pub fn to_torch_no_weights<T: Float + FromPrimitive + 'static>(model: &impl NN<T>, sample_input: Vec<Tensor<T>>)->String{
-        // TODO should return result
+        // TODO tracing the model in this 'inlined' form will also trace weight initialization..
         // run through model to create graph
         let output = model.forward(sample_input);
         // walk graph to list ops in the model, mapping to Pytorch ops

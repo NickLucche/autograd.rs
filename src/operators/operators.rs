@@ -1,5 +1,6 @@
 use ndarray::linalg::Dot;
-use ndarray::{Array, Dimension, Ix2, RemoveAxis};
+use ndarray::{Array, ArrayD, Dimension, Ix2, IxDyn, RemoveAxis};
+use ndarray::s;
 use num_traits::{Float, FromPrimitive};
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -52,6 +53,7 @@ pub struct Softmax;
 pub struct Mean;
 pub struct MeanSquaredError;
 pub struct Linear;
+pub struct Conv2D;
 pub struct MatMul;
 pub struct Mul; // TODO elementwise
 
@@ -229,6 +231,55 @@ impl Operator for Identity {
         vec![grad]
     }
 }
+
+impl Conv2D {
+    /// Lay out data in an accelerator-friendly way (cpus should also be happy with AVX and similar)
+    /// by "unfolding" the different patches of the input image that the kernel slides over, so that
+    /// we can resort to a (batched) matmul.
+    pub fn im2col<T:Float+FromPrimitive>(im: &Tensor<T>, k_size: usize, stride: usize, pad: usize)->Result<ArrayD::<T>, String> {
+        // single ksize for both x/y direction for now
+        if let [b,c, h, w] = im.shape()[..]{
+            let im = im.data();
+            // number of conv operations/slides on both axis
+            let new_height = (h - k_size + 2*pad) / stride + 1;
+            let new_width = (w - k_size + 2*pad) / stride + 1;
+            // #conv_ops X kernel_size*C, ie each conv is unfolded (channel-wise too)
+            let mut col = ArrayD::<T>::zeros(IxDyn(&[b, new_height*new_width, c*k_size*k_size]));
+
+            // should leverage data locality better if we dont bounce around channels and
+            // rows, so we lay out the whole line first
+            for y in 0..new_height {
+                let patch_y = y*stride-pad;
+                for x in 0..new_width {
+                    // lay out patch as a column vector
+                    let patch_x = x*stride-pad;
+                    let patch_idxs = s![.., .., patch_y..patch_y+k_size, patch_x..patch_x+k_size];
+                    let patch = im.slice(patch_idxs);
+                    let patch = patch.into_shape((b, patch.len()/b)).unwrap();
+                    col.slice_mut(s![.., y*new_width+x]).assign(&patch);
+                }
+            }
+
+
+            return Ok(col);
+        }
+        Err(format!("Expected image of shape BCHW, got shape {:?}", im.shape()))
+    }
+}
+impl Operator for Conv2D {
+    fn forward<T: Float + FromPrimitive + 'static>(&self, xs: Vec<Tensor<T>>) -> Tensor<T> where Array<T, Ix2>: Dot<Array<T, Ix2>, Output=Array<T, Ix2>> {
+        // great ref https://leonardoaraujosantos.gitbook.io/artificial-inteligence/machine_learning/deep_learning/convolution_layer/making_faster#forward-graph
+        if let [im, w, b, ksize, pad] = &xs[..] {
+
+        }
+        todo!()
+    }
+    fn backward(&self, xs: Vec<Tensor<f32>>, grad: Tensor<f32>) -> Vec<Tensor<f32>> {
+        todo!()
+    }
+}
+
+
 // took a while to figure out a way to deal with dispatching and object safety violated due to generics in traits
 // see https://play.rust-lang.org/?version=stable&mode=debug&edition=2021&gist=504f29b8003d70964caee607b5655a88
 // thanks to https://www.possiblerust.com/pattern/3-things-to-try-when-you-can-t-make-a-trait-object#code-1
