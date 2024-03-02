@@ -256,19 +256,41 @@ impl Conv2D {
             // #conv_ops X kernel_size*C, ie each conv is unfolded (channel-wise too)
             let mut col = ArrayD::<T>::zeros(IxDyn(&[b, new_height * new_width, c * k_size * k_size]));
 
+            // since reshaping (below) requires a contiguous array, we re-use the same memory location so we save allocation
+            // also, handling lateral im-filter overlaps when padding is tricky
+            let mut patch_buffer = ArrayD::<T>::zeros(IxDyn(&[b, c * k_size * k_size]));
+            let k_size = k_size as i32; // could overflow below!
+            let pad = pad as i32;
             // go over each kernel slide (nh*nw="#convolutions") NOT over "col" pixels
             for y in 0..new_height {
-                let patch_y = y * stride - pad;
+                // NOTE we don't actually pad the input as it can be very expensive; we can recognize when patch
+                // is out of bound (due to padding, wrt im origin) and only copy the sub-slice we need
+                let patch_y = (y * stride) as i32 - pad;
                 for x in 0..new_width {
                     // lay out patch as a column vector
-                    let patch_x = x * stride - pad;
-                    let patch_idxs = s![.., .., patch_y..patch_y+k_size, patch_x..patch_x+k_size];
-                    // TODO to reshape we need a contiguous array, save a copy by copying into its final dest directly
-                    let patch = im.slice(patch_idxs).into_owned();
-                    let s = patch.len() / b;
-                    let patch = patch.into_shape((b, s)).unwrap();
+                    let patch_x = (x * stride) as i32 - pad;
+                    // how you would do it if there was no padding, select patch and flatten
+                    // let patch_idxs = s![.., .., patch_y..patch_y+k_size, patch_x..patch_x+k_size];
+                    // let patch = im.slice(patch_idxs).into_owned();
+                    // let patch = patch.into_shape((b, patch.len() / b)).unwrap();
+                    // ..in particular, we handle the tricky case ('|' im boundaries, '/'kernel boundaries)
+                    // |X../X|0/
+                    // |X../X|0/   where X-0-X-0 slice needs to be flattened in this order
+
+                    let mut counter = 0;
+                    for ch in 0..c {
+                        for i in patch_y..(patch_y + k_size) {
+                            for j in patch_x..(patch_x + k_size) {
+                                if i >= 0 && i < h as i32 && j >= 0 && j < w as i32 {
+                                    patch_buffer.slice_mut(s![.., counter]).assign(&im.slice(s![.., ch, i, j]));
+                                }
+                                counter += 1;
+                            }
+                        }
+                    }
                     // this assigns a whole row of "col" (data locality happy), indexing from patch y/x coordinates
-                    col.slice_mut(s![.., y*new_width+x, ..]).assign(&patch);
+                    col.slice_mut(s![.., y*new_width+x, ..]).assign(&patch_buffer);
+                    patch_buffer.fill(T::zero());
                 }
             }
             return Ok(col);
@@ -361,7 +383,7 @@ mod tests {
     #[test]
     fn test_im2col() {
         let nums = Array::range(1.0, 49.0, 1.0);
-        let a = nums.clone().into_shape((1, 3, 4, 4)).unwrap();
+        let a = nums.into_shape((1, 3, 4, 4)).unwrap();
         // println!("X: {:?}", a);
         let x = Tensor::from(a);
         let res = Conv2D::im2col(&x, 2, 1, 0).unwrap();
@@ -385,6 +407,27 @@ mod tests {
         ];
         let expected = expected.t().into_shape((1, 9, 12)).unwrap().into_dyn();
         assert_eq!(res, expected);
-        // TODO with padding
+        // with padding
+        let nums = Array::range(1.0, 9.0, 1.0);
+        let a = nums.into_shape((1, 2, 2, 2)).unwrap();
+        let x = Tensor::from(a);
+        let res = Conv2D::im2col(&x, 2, 1, 1).unwrap();
+
+        // 9x4*2 (#slides X k*k*C)
+        let expected = array![
+        [0., 0., 0., 1., 0., 0., 0., 5.],
+        [0., 0., 1., 2., 0., 0., 5., 6.],
+        [0., 0., 2., 0., 0., 0., 6., 0.],
+
+        [0., 1., 0., 3., 0., 5., 0., 7.],
+        [1., 2., 3., 4., 5., 6., 7., 8.],
+        [2., 0., 4., 0., 6., 0., 8., 0.],
+
+        [0., 3., 0., 0., 0., 7., 0., 0.],
+        [3., 4., 0., 0., 7., 8., 0., 0.],
+        [4., 0., 0., 0., 8., 0., 0., 0.],
+        ];
+        let expected = expected.into_shape((1, 9, 8)).unwrap().into_dyn();
+        assert_eq!(res, expected);
     }
 }
