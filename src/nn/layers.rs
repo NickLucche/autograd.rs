@@ -29,6 +29,7 @@ pub trait Layer<T: Float + FromPrimitive + 'static> {
                 Operators::MeanSquaredError(op) => op.forward(xs),
                 Operators::Mean(op) => op.forward(xs),
                 Operators::Identity(op) => op.forward(xs),
+                Operators::Conv2D(op) => op.forward(xs),
             }];
             res = xs[0].clone();
         }

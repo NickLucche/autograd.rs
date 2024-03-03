@@ -241,6 +241,9 @@ impl<T> Tensor<T>
     pub fn shape(&self) -> Vec<usize> {
         self.data().shape().to_owned()
     }
+    pub fn shapei(&self, i: usize) -> usize {
+        self.shape()[i]
+    }
     pub fn reshape(&mut self, shape: &[usize]) {
         // we cannot directly modify the stride, so we need another Array which points to the same
         // storage.. thing is we can't move out the array either so we

@@ -64,6 +64,7 @@ where
         Operators::MeanSquaredError(op) => op.backward(op_inputs, prev_grad),
         Operators::Mean(op) => op.backward(op_inputs, prev_grad),
         Operators::Identity(op) => op.backward(op_inputs, prev_grad),
+        Operators::Conv2D(op) => op.backward(op_inputs, prev_grad),
     };
     // TODO this assumes that the node computes a gradient for each input! This is not true for e.g losses..
     // can be resolved returning an optional on grad, and do a check if requires_grad within backward to solve todos above

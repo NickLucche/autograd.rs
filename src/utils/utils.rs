@@ -70,6 +70,7 @@ pub mod export {
                 };
                 format!("nn.Identity()({inner})")
             },
+            Operators::Conv2D(op) =>todo!(),
         };
         torch_ops
     }

@@ -61,7 +61,13 @@ pub struct MeanSquaredError;
 
 pub struct Linear;
 
-pub struct Conv2D;
+pub struct Conv2D {
+    in_channels: usize,
+    out_channels: usize,
+    k_size: usize,
+    stride: usize,
+    pad: usize
+}
 
 pub struct MatMul;
 
@@ -243,6 +249,15 @@ impl Operator for Identity {
 }
 
 impl Conv2D {
+    pub fn new(other: &Conv2D)->Self {
+        Conv2D {in_channels: other.in_channels, out_channels: other.out_channels, k_size: other.k_size, stride: other.stride, pad: other.pad}
+    }
+
+    fn get_output_shape(&self, h: usize, w: usize)->[usize; 2] {
+        let new_height = (h - self.k_size + 2 * self.pad) / self.stride + 1;
+        let new_width = (w - self.k_size + 2 * self.pad) / self.stride + 1;
+        [new_height, new_width]
+    }
     /// Lay out data in an accelerator-friendly way (cpus should also be happy with AVX and similar)
     /// by "unfolding" the different patches of the input image that the kernel slides over, so that
     /// we can resort to a (batched) matmul.
@@ -297,13 +312,59 @@ impl Conv2D {
         }
         Err(format!("Expected image of shape BCHW, got shape {:?}", im.shape()))
     }
+
+    // Computes backward grads for the im2col op. It accumulates gradients on overlapping strides.
+    pub fn im2col_backward<T: Float+FromPrimitive>(col: &Tensor<T>, h_out: usize, w_out: usize, stride: usize, k_size: usize)->Result<ArrayD::<T>, String> {
+        if let [b, P, K] = col.shape()[..] {
+            let col = col.data();
+            // original image sizes
+            let c = K / (k_size*k_size);
+            let h = (h_out-1) * stride + k_size;
+            let w = (w_out-1) * stride + k_size;
+            let mut im = ArrayD::<T>::zeros(IxDyn(&[b, c, h, w]));
+            // go through each flattened patch, reshape it and sum contributions on overlapping patches
+            for i in 0..P {
+                // BxK*K*C
+                let row = col.slice(s![.., i, ..]);
+                let y = (i / w_out) * stride;
+                let x = (i % w_out) * stride;
+                let mut patch = im.slice_mut(s![.., .., y..y+k_size, x..x+k_size]);
+                // patch += &row; needs extra signature..
+                // we can reshape without owning view as the slice is contiguous
+                let p = &patch + &row.into_shape((b, c, k_size, k_size)).unwrap();
+                patch.assign(&p);
+            }
+            return Ok(im);
+        }
+        Err(format!("Expected tensor of shape BxH_out*W_outxK*K*C, got shape {:?}", col.shape()))
+    }
 }
 
 impl Operator for Conv2D {
     fn forward<T: Float + FromPrimitive + 'static>(&self, xs: Vec<Tensor<T>>) -> Tensor<T> where Array<T, Ix2>: Dot<Array<T, Ix2>, Output=Array<T, Ix2>> {
         // great ref https://leonardoaraujosantos.gitbook.io/artificial-inteligence/machine_learning/deep_learning/convolution_layer/making_faster#forward-graph
-        if let [im, w, b, ksize, pad] = &xs[..] {}
-        todo!()
+        let im = &xs[0];
+        // C_outx1xKxK
+        let filters = &xs[1];
+        let bias = &xs[2]; // 1xC_out, one value per filter
+        let col = Tensor::from(Conv2D::im2col(im, self.k_size, self.stride, self.pad).unwrap());
+        // reshape filters to prepare for matmul
+        let kernel = filters.data();
+        // do the actual filter broadcast here, lazily -> C_outxC_inxKxK
+        let kernel = kernel.broadcast(IxDyn(&[self.out_channels, self.in_channels, self.k_size, self.k_size])).unwrap();
+        let kkc = self.k_size * self.k_size * self.in_channels;
+        // TODO would like to avoid this into_owned -> totensor thing, add broadcast op like reshape
+        let kernel = kernel.into_shape((self.out_channels, kkc)).unwrap().into_owned();
+        let kernel = Tensor::from(kernel);
+        // TODO bmm
+        let mut t = col.dot(&kernel) + bias;
+        // reshape conv output to match expected shape
+        let [h_out, w_out] = self.get_output_shape(im.shapei(2), im.shapei(3));
+        // TODO swap axis?
+        t.reshape(&[im.shapei(0), h_out, w_out, self.out_channels]);
+
+        self.attach_to_eager_graph(xs.clone(), &mut t, Operators::Conv2D(Conv2D::new(self)) );
+        t
     }
     fn backward(&self, xs: Vec<Tensor<f32>>, grad: Tensor<f32>) -> Vec<Tensor<f32>> {
         todo!()
@@ -322,6 +383,7 @@ pub enum Operators {
     MeanSquaredError(MeanSquaredError),
     Mean(Mean),
     Identity(Identity),
+    Conv2D(Conv2D)
 }
 
 impl Into<String> for Operators {
@@ -334,6 +396,7 @@ impl Into<String> for Operators {
             Operators::MeanSquaredError(_) => String::from("MeanSquaredError"),
             Operators::Mean(_) => String::from("Mean"),
             Operators::Identity(_) => String::from("Identity"),
+            Operators::Conv2D(_) => String::from("Conv2D"),
         }
     }
 }
