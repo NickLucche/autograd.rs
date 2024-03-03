@@ -187,6 +187,9 @@ impl<T> Tensor<T>
 {
     pub fn dot(&self, other: &Tensor<T>) -> Tensor<T> {
         // NOTE this actually only works with 1D/2D matrices! https://docs.rs/ndarray/latest/ndarray/linalg/trait.Dot.html
+        if self.data().ndim() > 2 || other.data().ndim()>2 {
+            panic!("Ndarray only supports 1d/2d matmul!");
+        }
         // no clone version, operating on views; needs let binding to create a longer lived value..
         let a_ref = self.data();
         let a = a_ref.view().into_dimensionality::<Ix2>().unwrap();
