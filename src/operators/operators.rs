@@ -369,11 +369,58 @@ impl Operator for Conv2D {
         // TODO swap axis?
         t.reshape(&[im.shapei(0), h_out, w_out, self.out_channels]);
 
-        self.attach_to_eager_graph(xs.clone(), &mut t, Operators::Conv2D(Conv2D::new(self)));
+        // cached for backward pass (computed at f32)
+        let mut xs = xs.clone();
+        xs.push(col);
+        self.attach_to_eager_graph(xs, &mut t, Operators::Conv2D(Conv2D::new(self)));
         t
     }
+    ///
+    /// # Arguments
+    ///
+    /// * `xs`: [0] im BxCxHxW, [1] kernels ("compressed") 1xKxKxC_out [2] bias 1xC_out [3] im2col result B*PxKKC.
+    /// * `grad`: same shape as conv out, BxH_outxW_outxC_out
     fn backward(&self, xs: Vec<Tensor<f32>>, grad: Tensor<f32>) -> Vec<Tensor<f32>> {
-        todo!()
+        let im: &Tensor<f32> = &xs[0];
+        let filters: &Tensor<f32> = &xs[1];
+        let g: &Tensor<f32> = &grad;
+        // sum contributions over batch dim (broadcasted at runtime)
+        let db = g.sum_axis(0);
+
+        // B*PxC_out <- BxH_outxW_outxC_out
+        let mut g = g.clone();
+        g.reshape(&[g.shapei(0) * g.shapei(1) * g.shapei(2), g.shapei(3)]);
+
+        // B*PxC_out @ 1xKxKxC_out
+        let kkc = self.k_size * self.k_size * self.in_channels;
+        // 1xKxKxC_out->CxKxKxC_out
+        let mut kernels = filters.clone();
+        let karr = kernels.data_mut();
+        let karr = karr.broadcast(IxDyn(&[self.in_channels, self.k_size, self.k_size, self.out_channels])).unwrap().into_owned();
+        let mut kernels = Tensor::from(karr);
+        kernels.reshape(&[kkc, self.out_channels]);
+
+        // B*PxC_out @ C_outxKKC -> B*PxKKC
+        let dx = g.dot(kernels.t()).unsqueeze(0);
+        let [h_out, w_out] = self.get_output_shape(im.shapei(2), im.shapei(3));
+        let dx = Tensor::from(Conv2D::im2col_backward(&dx, h_out, w_out, self.stride, self.k_size).unwrap());
+        // TODO remove padding around edges on dx
+        // bring it back to original shape
+        // TODO needed if we remove into_owned in broadcast op
+        // kernels.swap_axes(0, -1);
+        // kernels.reshape(&[1, self.k_size, self.k_size, self.in_channels, self.out_channels]);
+
+        // just like Linear, but matrix 'col' is derived from inputs->we cache it during forward and re-use it here
+        // torch employs a "ctx.save_for_backward" general api, we're not that fancy here
+        let col: &Tensor<f32> = &xs[3];
+        // we dont need the 'C' dimension (which is repeated/broadcasted) to update kernels!
+        // BPxKKC->BPxKK, sum contributions
+        // TODO finish col.sum_axis()
+        // KKCxB*P @ B*PxC_out  -> KKCxC_out (filters)
+        let mut dw = col.t().dot(&g);
+        dw.reshape(&[1, self.k_size, self.k_size, self.out_channels]);
+
+        vec![dx, dw, db]
     }
 }
 
@@ -514,11 +561,20 @@ mod tests {
             stride: 1,
             pad: 0,
         };
-        let xs = vec![im, kernel, bias].into_iter().map(|x|Tensor::from(x)).collect();
-        let res = conv.forward(xs);
+        let mut xs: Vec<Tensor<f32>> = vec![im, kernel, bias].into_iter().map(|x|Tensor::from(x)).collect();
+        let res = conv.forward(xs.clone());
         let expected = ArrayD::from_elem(IxDyn(&[1, 3, 3, num_kernels]), 9.0);
         // println!("res shape {:?}", res.shape());
         // println!("res {:?}", res.data());
         assert_eq!(&*res.data(), expected);
+
+
+        let res = Tensor::from(Conv2D::im2col(&xs[0], 2, 1, 0).unwrap());
+        // simulate B*P layout that we expect with a squeeze since batch is 1
+        let res = res.squeeze();
+        xs.push(res);
+        let [ho, wo] = conv.get_output_shape(4, 4);
+        let grad = Tensor::ones(&[1, ho, wo, num_kernels]);
+        conv.backward(xs, grad);
     }
 }
