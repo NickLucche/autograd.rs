@@ -45,10 +45,11 @@ pub struct ReLU;
 pub struct Sigmoid;
 #[derive(Copy, Clone)]
 pub struct MeanSquaredError;
-#[derive(Copy, Clone)]
-pub struct Conv2D;
 
-impl<T: 'static> Layer<T> for Identity where T: Float+FromPrimitive{
+impl<T: 'static> Layer<T> for Identity
+where
+    T: Float + FromPrimitive,
+{
     fn get_op_subgraph(&self) -> Vec<Operators> {
         vec![Operators::Identity(operators::operators::Identity)]
     }
@@ -61,6 +62,13 @@ pub struct Linear {
     w: Tensor<f32>, // quantized linear will be a different layer
     bias: Tensor<f32>,
 }
+#[derive(Clone)]
+pub struct Conv2D {
+    kernels: Tensor<f32>,
+    bias: Tensor<f32>,
+    _operator: operators::operators::Conv2D,
+}
+
 impl Linear {
     pub fn new(in_features: usize, out_features: usize, bias: bool) -> Self {
         // TODO optional bias
@@ -90,7 +98,10 @@ impl Layer<f32> for Linear {
     }
 }
 
-impl<T: 'static> Layer<T> for ReLU where T: Float+FromPrimitive{
+impl<T: 'static> Layer<T> for ReLU
+where
+    T: Float + FromPrimitive,
+{
     fn get_op_subgraph(&self) -> Vec<Operators> {
         vec![Operators::ReLU(operators::operators::ReLU)]
     }
@@ -98,7 +109,10 @@ impl<T: 'static> Layer<T> for ReLU where T: Float+FromPrimitive{
         vec![]
     }
 }
-impl<T: 'static> Layer<T> for Sigmoid where T: Float+FromPrimitive{
+impl<T: 'static> Layer<T> for Sigmoid
+where
+    T: Float + FromPrimitive,
+{
     fn get_op_subgraph(&self) -> Vec<Operators> {
         vec![Operators::Sigmoid(operators::operators::Sigmoid)]
     }
@@ -106,47 +120,92 @@ impl<T: 'static> Layer<T> for Sigmoid where T: Float+FromPrimitive{
         vec![]
     }
 }
-impl<T: 'static> Layer<T> for MeanSquaredError where T: Float+FromPrimitive{
+impl<T: 'static> Layer<T> for MeanSquaredError
+where
+    T: Float + FromPrimitive,
+{
     fn get_op_subgraph(&self) -> Vec<Operators> {
-        vec![Operators::MeanSquaredError(operators::operators::MeanSquaredError)]
+        vec![Operators::MeanSquaredError(
+            operators::operators::MeanSquaredError,
+        )]
     }
     fn parameters(&self) -> Vec<Tensor<T>> {
         vec![]
     }
 }
-impl<T: 'static> Layer<T> for Conv2D where T: Float+FromPrimitive{
-    fn get_op_subgraph(&self) -> Vec<Operators> {
-        vec![Operators::MeanSquaredError(operators::operators::MeanSquaredError)]
+
+impl Conv2D {
+    pub fn default(in_channels: usize, out_channels: usize, k_size: usize) -> Self {
+        Conv2D::new(in_channels, out_channels, k_size, 1, 0)
     }
-    fn parameters(&self) -> Vec<Tensor<T>> {
-        vec![]
-    }
-    fn forward(&self, xs: Vec<Tensor<T>>) -> Tensor<T> {
-        // check input is BCHW
-        todo!()
+
+    pub fn new(
+        in_channels: usize,
+        out_channels: usize,
+        k_size: usize,
+        stride: usize,
+        pad: usize,
+    ) -> Self {
+        let w_shape = &[k_size, k_size, out_channels];
+        let (fan_in, _) = calculate_fan_in_and_fan_out(w_shape);
+        let bound = 1. / f32::sqrt(fan_in as f32);
+
+        Conv2D {
+            kernels: Tensor::<f32>::kaiming_uniform(w_shape),
+            bias: Tensor::<f32>::uniform(&[out_channels], -bound, bound),
+            _operator: operators::operators::Conv2D::new(
+                in_channels,
+                out_channels,
+                k_size,
+                stride,
+                pad,
+            ),
+        }
     }
 }
 
+impl Layer<f32> for Conv2D {
+    fn get_op_subgraph(&self) -> Vec<Operators> {
+        vec![Operators::Conv2D(self._operator.clone())]
+    }
+    fn parameters(&self) -> Vec<Tensor<f32>> {
+        vec![self.kernels.clone(), self.bias.clone()]
+    }
 
-
-
+    fn forward(&self, mut xs: Vec<Tensor<f32>>) -> Tensor<f32> {
+        assert!(xs.len() == 1);
+        xs.extend(self.parameters());
+        self.forward_default(xs)
+    }
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ndarray::prelude::*;
     use crate::nn::layers::*;
+    use ndarray::prelude::*;
 
     #[test]
-    fn test_mlp(){
+    fn test_mlp() {
         let layer1 = Linear::new(20, 10, true);
-        let relu = ReLU{};
+        let relu = ReLU {};
         let layer2 = Linear::new(10, 1, true);
         let x = Tensor::<f32>::uniform(&[1, 20], -1.0, 1.0);
 
         let mut res = layer1.forward(vec![x.clone()]);
         res = relu.forward(vec![res]);
         res = layer2.forward(vec![res]);
+        res.backward();
+        assert!(*x.grad() != None);
+    }
+    #[test]
+    fn test_conv() {
+        let conv = Conv2D::default(3, 16, 3);
+        let relu = ReLU {};
+        let x = Tensor::<f32>::uniform(&[1, 3, 24, 24], -1.0, 1.0);
+
+        let mut res = conv.forward(vec![x.clone()]);
+        res = relu.forward(vec![res]);
         res.backward();
         assert!(*x.grad() != None);
     }

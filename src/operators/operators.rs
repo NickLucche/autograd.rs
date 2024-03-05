@@ -62,6 +62,7 @@ pub struct MeanSquaredError;
 
 pub struct Linear;
 
+#[derive(Clone)]
 pub struct Conv2D {
     in_channels: usize,
     out_channels: usize,
@@ -256,14 +257,31 @@ impl Operator for Identity {
     }
 }
 
-impl Conv2D {
-    pub fn new(other: &Conv2D) -> Self {
+impl From<&Conv2D> for Conv2D {
+    fn from(other: &Conv2D) -> Self {
         Conv2D {
             in_channels: other.in_channels,
             out_channels: other.out_channels,
             k_size: other.k_size,
             stride: other.stride,
             pad: other.pad,
+        }
+    }
+}
+impl Conv2D {
+    pub fn new(
+        in_channels: usize,
+        out_channels: usize,
+        k_size: usize,
+        stride: usize,
+        pad: usize,
+    ) -> Self {
+        Conv2D {
+            in_channels: in_channels,
+            out_channels: out_channels,
+            k_size: k_size,
+            stride: stride,
+            pad: pad,
         }
     }
 
@@ -424,7 +442,7 @@ impl Operator for Conv2D {
         // cached for backward pass (computed at f32)
         let mut xs = xs.clone();
         xs.push(col);
-        self.attach_to_eager_graph(xs, &mut t, Operators::Conv2D(Conv2D::new(self)));
+        self.attach_to_eager_graph(xs, &mut t, Operators::Conv2D(Conv2D::from(self)));
         t
     }
     ///
