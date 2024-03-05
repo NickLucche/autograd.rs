@@ -314,8 +314,11 @@ impl<T> Tensor<T>
     pub fn len(&self) -> usize {
         self.data().len()
     }
-    pub fn sum_axis(&self, axis: usize) -> Tensor<T> {
-        Tensor::from(self.data().sum_axis(Axis(axis)))
+    pub fn sum_axis(&self, mut axis: i32) -> Tensor<T> {
+        if axis < 0 {
+            axis = self.ndim() as i32 + axis;
+        }
+        Tensor::from(self.data().sum_axis(Axis(axis as usize)))
     }
     pub fn mean(&self, axis: Option<usize>) -> Tensor<T> {
         // will panic on empty tensors, at least it's consistent with .sum
