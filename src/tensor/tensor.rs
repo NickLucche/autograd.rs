@@ -155,8 +155,26 @@ impl<T> Tensor<T>
     //     self
     // }
 
+    pub fn t(&self)->&Self {
+        assert_eq!(self.ndim(), 2);
+        self.swap_axes(0, -1);
+        self
+    }
     pub fn t_clone(&self) -> Self {
         Tensor::from(self.data().t().to_owned())
+    }
+    pub fn ndim(&self)->usize {
+        self.data().ndim()
+    }
+    pub fn swap_axes(&self, mut ax: i32, mut bx: i32) {
+        let mut t = self.data_mut();
+        if ax < 0 {
+            ax = t.ndim() as i32+ax;
+        }
+        if bx < 0 {
+            bx = t.ndim() as i32+bx;
+        }
+        t.swap_axes(ax as usize, bx as usize);
     }
 
     pub fn sum(&self) -> T {
@@ -177,6 +195,9 @@ impl<T> Tensor<T>
 
     pub fn fill(&mut self, x: T) {
         self.data_mut().fill(x)
+    }
+    pub fn is_contiguous(&self)->bool {
+        self.data().is_standard_layout()
     }
 }
 
@@ -257,7 +278,7 @@ impl<T> Tensor<T>
 
         // can't move with into_inner/take..
         let array = self.data.replace(ArrayD::<T>::zeros(IxDyn(&[1])));
-
+        // NOTE will panic if the array is *NOT* contiguous
         let reshaped_array = array.into_shape(shape).unwrap();
         let _ = self.data.replace(reshaped_array);
         // similar to
@@ -265,6 +286,27 @@ impl<T> Tensor<T>
         //  Array::from_shape_vec_unchecked(shape, data_ptr)
         // };
         // let old = std::mem::replace(&mut *self.data.borrow_mut(), reshaped_array);
+    }
+    pub fn unsqueeze(mut self, mut ax: i32) -> Self{
+        if ax < 0 {
+            ax = self.ndim() as i32;
+        }
+        let ax = ax as usize;
+        assert!(ax <= self.ndim()); // does unsqueze(100) make sense?
+        let mut shape = self.shape();
+        if ax < shape.len(){
+            shape.insert(ax, 1);
+        } else {
+            shape.push(1);
+        }
+        self.reshape(shape.as_slice());
+        self
+    }
+    pub fn squeeze(mut self) -> Self{
+        let mut shape = self.shape();
+        shape.retain(|&x| x != 1);
+        self.reshape(shape.as_slice());
+        self
     }
     pub fn size(&self) -> usize {
         self.len()
