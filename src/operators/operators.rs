@@ -441,7 +441,7 @@ impl Operator for Conv2D {
         let mut g = g.clone();
         g.reshape(&[g.shapei(0) * g.shapei(1) * g.shapei(2), g.shapei(3)]);
         // sum contributions over PB dim (broadcasted at runtime), since you have one value per kernel (Cout)
-        let db = g.sum_axis(0).unsqueeze(0);
+        let db = g.sum_axis(0);
 
         // B*PxC_out @ 1xKxKxC_out
         let kkc = self.k_size * self.k_size * self.in_channels;
@@ -485,7 +485,7 @@ impl Operator for Conv2D {
         col = col.sum_axis(-1);
         // KKCxB*P @ B*PxC_out  -> KKCxC_out (filters)
         let mut dw = col.t().dot(&g);
-        dw.reshape(&[1, self.k_size, self.k_size, self.out_channels]);
+        dw.reshape(&[self.k_size, self.k_size, self.out_channels]);
 
         vec![dx, dw, db]
     }
@@ -611,8 +611,8 @@ mod tests {
     fn test_conv2d() {
         // with a Layer we get properly initialized kernels, here we just make up our own
         let num_kernels = 3;
-        let kernel = ArrayD::<f32>::ones(IxDyn(&[1, 2, 2, num_kernels]));
-        let bias = ArrayD::<f32>::ones(IxDyn(&[1, num_kernels]));
+        let kernel = ArrayD::<f32>::ones(IxDyn(&[2, 2, num_kernels]));
+        let bias = ArrayD::<f32>::ones(IxDyn(&[num_kernels]));
         let im = ArrayD::<f32>::ones(IxDyn(&[1, 2, 4, 4]));
         let conv = Conv2D {
             in_channels: 2,
