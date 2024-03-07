@@ -86,4 +86,6 @@ I appreciate any feedback - be it bug reports, feature suggestions, test scenari
 
 ## License 📖
 
-This project is licensed under the [Choose License] - see the [LICENSE.md](LICENSE.md) file for details.
+This project is licensed under the [Apache License 2.0] - see the [LICENSE](LICENSE) file for details.
+
+Please note that Autograd.rs is currently under active development, so things can break!
