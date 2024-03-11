@@ -1,4 +1,5 @@
 # Autograd.rs 🚀
+[![Build and test](https://github.com/NickLucche/autograd.rs/actions/workflows/build_and_test.yml/badge.svg?branch=master)](https://github.com/NickLucche/autograd.rs/actions/workflows/build_and_test.yml)
 
 Autograd.rs is a basic Deep Learning library with (you guessed it) automatic differentiation support, built on top of the `rust-ndarray` crate to execute computations. 
 The project is made for educational purposes, in particular to learn about Rust and explore its applications within the machine learning landscape!
