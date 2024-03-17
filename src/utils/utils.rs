@@ -3,18 +3,18 @@ pub mod export {
     use crate::autograd::autograd::Node;
     use crate::nn::model::NN;
     use crate::operators::operators::Operators;
-    use crate::tensor::tensor::Tensor;
+    use crate::tensor::tensor::{Powi, Primitive, Tensor};
 
     const TORCH_IMPORT_TEMPLATE: &str = "import torch\nimport torch.nn as nn\nimport torch.nn.functional as F\n\n";
 
-    fn autograd_tensor_to_torch_str<T: Float + FromPrimitive>(t: &Tensor<T>) -> String {
+    fn autograd_tensor_to_torch_str<T: Primitive>(t: &Tensor<T>) -> String {
         // NOTE data is *not* copied, returns a placeholder tensor with same shape and dytpe
         // TODO
         let dtype = "torch.float32";
         format!("torch.zeros({:?}, dtype={})", t.shape(), dtype)
     }
 
-    fn graph_to_pytorch_code<T: Float + FromPrimitive>(node: &Node<T>) -> String {
+    fn graph_to_pytorch_code<T: Primitive>(node: &Node<T>) -> String {
         // visit node, we embed op-specific logic here (e.g. number of expected input vars)
         let handle_activation = |activation_name: &str| {
             if !node.is_root_node() {
@@ -75,7 +75,7 @@ pub mod export {
         torch_ops
     }
 
-    pub fn to_torch_no_weights<T: Float + FromPrimitive + 'static>(model: &impl NN<T>, sample_input: Vec<Tensor<T>>)->String{
+    pub fn to_torch_no_weights<T: Primitive + 'static>(model: &impl NN<T>, sample_input: Vec<Tensor<T>>)->String where Tensor<T>: Powi{
         // TODO tracing the model in this 'inlined' form will also trace weight initialization..
         // run through model to create graph
         let output = model.forward(sample_input);

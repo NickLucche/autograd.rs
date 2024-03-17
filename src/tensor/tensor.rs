@@ -9,10 +9,14 @@ use std::rc::Rc;
 
 extern crate num_traits;
 
-// use num_traits::Num;
-use super::arithmetic::*;
 use super::init::{kaiming_uniform, uniform};
-use num_traits::{cast::FromPrimitive, float::Float};
+use num_traits::{cast::FromPrimitive, Num, NumCast};
+pub trait Primitive: Copy + NumCast + Num + PartialOrd<Self> + Clone + FromPrimitive {}
+impl Primitive for u8 {}
+impl Primitive for f32 {}
+impl Primitive for f64 {}
+impl Primitive for i32 {}
+impl Primitive for i64 {}
 
 // trait WellBehavedArray<T, D> where T: Float+FromPrimitive, D: Dimension, Array<T, D>: Dot<Array<T, D>, Output = Array<T, D>> {}
 // trait WellBehavedArray: PartialOrd + Display {}
@@ -26,9 +30,9 @@ fn deep_copy_shared_array<T: Clone>(t: &SharedArray<T>) -> SharedArray<T> {
     shared_ptr_new(t.borrow().to_owned())
 }
 
-fn add_shared_array_inplace<T: Float + FromPrimitive>(a: &mut SharedArray<T>, b: &SharedArray<T>)
-    where
-        ArrayD<T>: for<'a> AddAssign<&'a ArrayD<T>>,
+fn add_shared_array_inplace<T: Primitive>(a: &mut SharedArray<T>, b: &SharedArray<T>)
+where
+    ArrayD<T>: for<'a> AddAssign<&'a ArrayD<T>>,
 {
     let mut a_t = a.borrow_mut();
     let b_t = &b.borrow();
@@ -38,7 +42,7 @@ fn add_shared_array_inplace<T: Float + FromPrimitive>(a: &mut SharedArray<T>, b:
 #[derive(Clone)]
 // clone is now inexpensive as we're just referencing the data, not owning it
 // we don't want to support all types, we require T to be a number
-pub struct Tensor<T: Float + FromPrimitive> {
+pub struct Tensor<T: Primitive> {
     pub requires_grad: bool,
     // TODO rename to graph_node
     pub graph: Option<SharedPtr<Node<T>>>,
@@ -48,7 +52,7 @@ pub struct Tensor<T: Float + FromPrimitive> {
 }
 
 // TODO a .no_grad() to set all to requires_grad to false and NOT create any graph
-impl<T: Float + FromPrimitive, D: Dimension> From<Array<T, D>> for Tensor<T> {
+impl<T: Primitive, D: Dimension> From<Array<T, D>> for Tensor<T> {
     fn from(arr: Array<T, D>) -> Self {
         let shape = arr.raw_dim().into_dyn();
         // TODO requires_grad false constructor
@@ -63,8 +67,8 @@ impl<T: Float + FromPrimitive, D: Dimension> From<Array<T, D>> for Tensor<T> {
 }
 
 impl<T> Tensor<T>
-    where
-        T: Float + FromPrimitive,
+where
+    T: Primitive,
 {
     pub fn zeros(shape: &[usize]) -> Self {
         Self {
@@ -93,8 +97,8 @@ impl<T> Tensor<T>
         kaiming_uniform(tensor_shape)
     }
     pub fn to_owned(&self) -> Tensor<T>
-        where
-            T: Clone,
+    where
+        T: Clone,
     {
         // TODO impl trait
         Tensor {
@@ -126,7 +130,7 @@ impl<T> Tensor<T>
         *self.grad.borrow_mut() = Some(ArrayD::zeros(dim));
     }
 
-    pub fn accumulate_grad<A: Float + FromPrimitive>(&mut self, b: &Tensor<A>) {
+    pub fn accumulate_grad<A: Primitive>(&mut self, b: &Tensor<A>) {
         // if self has no grad, lazy init it here
         let mut a_grad = self.grad_mut();
         let b_grad = b.grad();
@@ -149,13 +153,7 @@ impl<T> Tensor<T>
         }
     }
 
-    // TODO use view
-    // pub fn t_copy(&mut self) -> &Self {
-    //     self.data = self.data.t().to_owned();
-    //     self
-    // }
-
-    pub fn t(&self)->&Self {
+    pub fn t(&self) -> &Self {
         assert_eq!(self.ndim(), 2);
         self.swap_axes(0, -1);
         self
@@ -163,16 +161,16 @@ impl<T> Tensor<T>
     pub fn t_clone(&self) -> Self {
         Tensor::from(self.data().t().to_owned())
     }
-    pub fn ndim(&self)->usize {
+    pub fn ndim(&self) -> usize {
         self.data().ndim()
     }
     pub fn swap_axes(&self, mut ax: i32, mut bx: i32) {
         let mut t = self.data_mut();
         if ax < 0 {
-            ax = t.ndim() as i32+ax;
+            ax = t.ndim() as i32 + ax;
         }
         if bx < 0 {
-            bx = t.ndim() as i32+bx;
+            bx = t.ndim() as i32 + bx;
         }
         t.swap_axes(ax as usize, bx as usize);
     }
@@ -180,35 +178,87 @@ impl<T> Tensor<T>
     pub fn sum(&self) -> T {
         self.data().sum()
     }
-    pub fn powi(&self, exp: i32) -> Self {
-        Tensor::from(self.data().mapv(|a| a.powi(exp)))
-    }
-    pub fn powi_inplace(self, exp: i32) -> Self {
-        self.data_mut().mapv_inplace(|a| a.powi(exp));
-        self
-    }
 
-    pub fn as_type<A: Float + FromPrimitive>(&self) -> Tensor<A> {
+    pub fn as_type<A: Primitive>(&self) -> Tensor<A> {
         // TODO in-place with cast if possible? https://github.com/rust-ndarray/ndarray/issues/493
-        Tensor::from(self.data().mapv(|elem| A::from(elem).unwrap()))
+        let mut t = Tensor::from(self.data().mapv(|elem| A::from(elem).unwrap()));
+        t.requires_grad = self.requires_grad;
+        t
     }
 
     pub fn fill(&mut self, x: T) {
         self.data_mut().fill(x)
     }
-    pub fn is_contiguous(&self)->bool {
+    pub fn is_contiguous(&self) -> bool {
         self.data().is_standard_layout()
     }
 }
 
+// trait for "specialized" functions
+// NOTE use this to add extra functions that have different impls per type
+pub trait Powi {
+    fn powi(&self, exp: i32) -> Self;
+    fn powi_inplace(self, exp: i32) -> Self;
+}
+
+// fast exp from Float trait for floats
+impl Powi for Tensor<f32> {
+    fn powi(&self, exp: i32) -> Self {
+        Tensor::from(self.data().mapv(|a| a.powi(exp)))
+    }
+    fn powi_inplace(self, exp: i32) -> Self {
+        self.data_mut().mapv_inplace(|a| a.powi(exp));
+        self
+    }
+}
+impl Powi for Tensor<f64> {
+    fn powi(&self, exp: i32) -> Self {
+        Tensor::from(self.data().mapv(|a| a.powi(exp)))
+    }
+    fn powi_inplace(self, exp: i32) -> Self {
+        self.data_mut().mapv_inplace(|a| a.powi(exp));
+        self
+    }
+}
+
+// "default" T::pow implementations for other primitives
+impl Powi for Tensor<u8> {
+    fn powi(&self, exp: i32) -> Self {
+        Tensor::from(self.data().mapv(|a| u8::pow(a, exp as u32)))
+    }
+    fn powi_inplace(self, exp: i32) -> Self {
+        self.data_mut().mapv_inplace(|a| u8::pow(a, exp as u32));
+        self
+    }
+}
+
+impl Powi for Tensor<i32> {
+    fn powi(&self, exp: i32) -> Self {
+        Tensor::from(self.data().mapv(|a| i32::pow(a, exp as u32)))
+    }
+    fn powi_inplace(self, exp: i32) -> Self {
+        self.data_mut().mapv_inplace(|a| i32::pow(a, exp as u32));
+        self
+    }
+}
+impl Powi for Tensor<i64> {
+    fn powi(&self, exp: i32) -> Self {
+        Tensor::from(self.data().mapv(|a| i64::pow(a, exp as u32)))
+    }
+    fn powi_inplace(self, exp: i32) -> Self {
+        self.data_mut().mapv_inplace(|a| i64::pow(a, exp as u32));
+        self
+    }
+}
+
 impl<T> Tensor<T>
-    where
-        T: Float + FromPrimitive + 'static,
-        Array<T, Ix2>: Dot<Array<T, Ix2>, Output=Array<T, Ix2>>,
+where
+    T: Primitive + 'static,
+    Array<T, Ix2>: Dot<Array<T, Ix2>, Output = Array<T, Ix2>>,
 {
     pub fn dot(&self, other: &Tensor<T>) -> Tensor<T> {
         // NOTE this actually only works with 1D/2D matrices! https://docs.rs/ndarray/latest/ndarray/linalg/trait.Dot.html
-        if self.data().ndim() > 2 || other.data().ndim()>2 {
+        if self.data().ndim() > 2 || other.data().ndim() > 2 {
             panic!("Ndarray only supports 1d/2d matmul!");
         }
         // no clone version, operating on views; needs let binding to create a longer lived value..
@@ -247,8 +297,8 @@ impl Backward for Tensor<f32> {
 // }
 
 impl Tensor<f32>
-    where
-        Array<f32, Ix2>: Dot<Array<f32, Ix2>, Output=Array<f32, Ix2>>,
+where
+    Array<f32, Ix2>: Dot<Array<f32, Ix2>, Output = Array<f32, Ix2>>,
 {
     /**
      * Backward is only implemented for f32 tensors as the whole backward pass is run @floating point precision.
@@ -259,8 +309,8 @@ impl Tensor<f32>
 }
 
 impl<T> Tensor<T>
-    where
-        T: Float + FromPrimitive,
+where
+    T: Primitive,
 {
     pub fn shape(&self) -> Vec<usize> {
         self.data().shape().to_owned()
@@ -287,14 +337,14 @@ impl<T> Tensor<T>
         // };
         // let old = std::mem::replace(&mut *self.data.borrow_mut(), reshaped_array);
     }
-    pub fn unsqueeze(mut self, mut ax: i32) -> Self{
+    pub fn unsqueeze(mut self, mut ax: i32) -> Self {
         if ax < 0 {
             ax = self.ndim() as i32;
         }
         let ax = ax as usize;
         assert!(ax <= self.ndim()); // does unsqueze(100) make sense?
         let mut shape = self.shape();
-        if ax < shape.len(){
+        if ax < shape.len() {
             shape.insert(ax, 1);
         } else {
             shape.push(1);
@@ -302,7 +352,7 @@ impl<T> Tensor<T>
         self.reshape(shape.as_slice());
         self
     }
-    pub fn squeeze(mut self) -> Self{
+    pub fn squeeze(mut self) -> Self {
         let mut shape = self.shape();
         shape.retain(|&x| x != 1);
         self.reshape(shape.as_slice());
@@ -330,17 +380,17 @@ impl<T> Tensor<T>
 }
 
 // TODO other file for ops
-pub fn ones_like<T: Float + FromPrimitive>(t: &Tensor<T>) -> Tensor<T> {
+pub fn ones_like<T: Primitive>(t: &Tensor<T>) -> Tensor<T> {
     let data = ArrayD::<T>::ones(t.data().raw_dim());
     Tensor::from(data)
 }
 
-pub fn ones_like_f32<T: Float + FromPrimitive>(t: &Tensor<T>) -> Tensor<f32> {
+pub fn ones_like_f32<T: Primitive>(t: &Tensor<T>) -> Tensor<f32> {
     let data = ArrayD::<f32>::ones(t.data().raw_dim());
     Tensor::from(data)
 }
 
-pub fn zeros_like<T: Float + FromPrimitive>(t: &Tensor<T>) -> Tensor<T> {
+pub fn zeros_like<T: Primitive>(t: &Tensor<T>) -> Tensor<T> {
     let data = ArrayD::<T>::zeros(t.data().raw_dim());
     Tensor::from(data)
 }
@@ -388,6 +438,6 @@ mod tests {
         t2.reshape(&[4]);
         // all clones of t point to the same storage, which has now been modified
         // with different shape+stride
-        assert!(t2.shape()==t.shape() && t.shape()==vec![4]);
+        assert!(t2.shape() == t.shape() && t.shape() == vec![4]);
     }
 }

@@ -1,12 +1,11 @@
 use ndarray::linalg::Dot;
 use ndarray::s;
-use ndarray::{Array, ArrayD, Dimension, Ix2, IxDyn, RemoveAxis};
-use num_traits::{Float, FromPrimitive};
+use ndarray::{Array, ArrayD, Ix2, IxDyn};
 use std::cell::RefCell;
 use std::rc::Rc;
 
 use crate::autograd::autograd::Node;
-use crate::tensor::tensor::{ones_like, ones_like_f32, zeros_like, Tensor};
+use crate::tensor::tensor::{ones_like, ones_like_f32, zeros_like, Powi, Primitive, Tensor};
 
 type SharedPtr<T> = Rc<RefCell<T>>;
 
@@ -16,14 +15,14 @@ pub fn shared_ptr_new<T>(x: T) -> SharedPtr<T> {
 }
 
 pub trait Operator {
-    fn forward<T: Float + FromPrimitive + 'static>(&self, xs: Vec<Tensor<T>>) -> Tensor<T>
+    fn forward<T: Primitive + 'static>(&self, xs: Vec<Tensor<T>>) -> Tensor<T>
     where
-        Array<T, Ix2>: Dot<Array<T, Ix2>, Output = Array<T, Ix2>>;
+        Array<T, Ix2>: Dot<Array<T, Ix2>, Output = Array<T, Ix2>>, Tensor<T>: Powi;
 
     fn backward(&self, xs: Vec<Tensor<f32>>, grad: Tensor<f32>) -> Vec<Tensor<f32>>;
 
     // TODO should this function live in autograd? Self isn't even needed!
-    fn attach_to_eager_graph<T: Float + FromPrimitive>(
+    fn attach_to_eager_graph<T: Primitive>(
         &self,
         mut inputs: Vec<Tensor<T>>,
         op_output: &mut Tensor<T>,
@@ -77,11 +76,11 @@ pub struct Mul; // TODO elementwise
 
 // TODO solve this variable ordering/naming problem
 impl Operator for ReLU {
-    fn forward<T: Float + FromPrimitive + 'static>(&self, xs: Vec<Tensor<T>>) -> Tensor<T> {
+    fn forward<T: Primitive + 'static>(&self, xs: Vec<Tensor<T>>) -> Tensor<T> {
         let mut t = zeros_like(&xs[0]);
         // TODO in_place: treat x as output and attach it to current op
         for (tv, xv) in t.data_mut().iter_mut().zip(xs[0].data().iter()) {
-            if *xv > T::from_f32(0.).unwrap() {
+            if *xv > T::from(0).unwrap() {
                 *tv = *xv;
             }
         }
@@ -106,7 +105,7 @@ impl Operator for Linear {
     /**
      * x @ W + b
      */
-    fn forward<T: Float + FromPrimitive + 'static>(&self, xs: Vec<Tensor<T>>) -> Tensor<T>
+    fn forward<T: Primitive + 'static>(&self, xs: Vec<Tensor<T>>) -> Tensor<T>
     where
         Array<T, Ix2>: Dot<Array<T, Ix2>, Output = Array<T, Ix2>>,
     {
@@ -137,7 +136,7 @@ impl Operator for Linear {
 }
 
 impl Operator for MatMul {
-    fn forward<T: Float + FromPrimitive + 'static>(&self, xs: Vec<Tensor<T>>) -> Tensor<T>
+    fn forward<T: Primitive + 'static>(&self, xs: Vec<Tensor<T>>) -> Tensor<T>
     where
         Array<T, Ix2>: Dot<Array<T, Ix2>, Output = Array<T, Ix2>>,
     {
@@ -160,12 +159,12 @@ impl Operator for MatMul {
 }
 
 impl Sigmoid {
-    pub fn sigmoid_inplace<T: Float + FromPrimitive>(x: &Tensor<T>) -> &Tensor<T> {
+    pub fn sigmoid_inplace<T: Primitive>(x: &Tensor<T>) -> &Tensor<T> {
         x.data_mut()
             .mapv_inplace(|x| T::from(1.0 / (1.0 + f32::exp(-x.to_f32().unwrap()))).unwrap());
         x
     }
-    pub fn sigmoid<T: Float + FromPrimitive>(x: &Tensor<T>) -> Tensor<T> {
+    pub fn sigmoid<T: Primitive>(x: &Tensor<T>) -> Tensor<T> {
         let t = x
             .data_mut()
             .mapv(|x| T::from(1.0 / (1.0 + f32::exp(-x.to_f32().unwrap()))).unwrap());
@@ -174,7 +173,7 @@ impl Sigmoid {
 }
 
 impl Operator for Sigmoid {
-    fn forward<T: Float + FromPrimitive + 'static>(&self, xs: Vec<Tensor<T>>) -> Tensor<T> {
+    fn forward<T: Primitive + 'static>(&self, xs: Vec<Tensor<T>>) -> Tensor<T> {
         let x: &Tensor<T> = &xs[0];
         // compute sigmoid in f32, then convert value back to T (avoiding `as_type` copy)
         // |x| 1.0/(1.0 + f64::exp(-x))
@@ -200,9 +199,9 @@ impl Operator for Sigmoid {
 /// Computes np.mean((prediction - target) ** 2), which is Pytorch default (reduction='mean'),
 /// with batch dim (0) assumed to be present.
 impl Operator for MeanSquaredError {
-    fn forward<T: Float + FromPrimitive + 'static>(&self, xs: Vec<Tensor<T>>) -> Tensor<T>
+    fn forward<T: Primitive + 'static>(&self, xs: Vec<Tensor<T>>) -> Tensor<T>
     where
-        Array<T, Ix2>: Dot<Array<T, Ix2>, Output = Array<T, Ix2>>,
+        Array<T, Ix2>: Dot<Array<T, Ix2>, Output = Array<T, Ix2>>, Tensor<T>: Powi
     {
         let pred: &Tensor<T> = &xs[0];
         let target: &Tensor<T> = &xs[1];
@@ -228,7 +227,7 @@ impl Operator for MeanSquaredError {
 
 impl Operator for Mean {
     // TODO axis as Mean attribute
-    fn forward<T: Float + FromPrimitive + 'static>(&self, xs: Vec<Tensor<T>>) -> Tensor<T>
+    fn forward<T: Primitive + 'static>(&self, xs: Vec<Tensor<T>>) -> Tensor<T>
     where
         Array<T, Ix2>: Dot<Array<T, Ix2>, Output = Array<T, Ix2>>,
     {
@@ -244,7 +243,7 @@ impl Operator for Mean {
 }
 
 impl Operator for Identity {
-    fn forward<T: Float + FromPrimitive + 'static>(&self, xs: Vec<Tensor<T>>) -> Tensor<T>
+    fn forward<T: Primitive + 'static>(&self, xs: Vec<Tensor<T>>) -> Tensor<T>
     where
         Array<T, Ix2>: Dot<Array<T, Ix2>, Output = Array<T, Ix2>>,
     {
@@ -293,7 +292,7 @@ impl Conv2D {
     /// Lay out data in an accelerator-friendly way (cpus should also be happy with AVX and similar)
     /// by "unfolding" the different patches of the input image that the kernel slides over, so that
     /// we can resort to a (batched) matmul.
-    pub fn im2col<T: Float + FromPrimitive>(
+    pub fn im2col<T: Primitive>(
         im: &Tensor<T>,
         k_size: usize,
         stride: usize,
@@ -361,7 +360,7 @@ impl Conv2D {
     }
 
     // Computes backward grads for the im2col op. It accumulates gradients on overlapping strides.
-    pub fn im2col_backward<T: Float + FromPrimitive>(
+    pub fn im2col_backward<T: Primitive>(
         col: &Tensor<T>,
         h_out: usize,
         w_out: usize,
@@ -401,7 +400,7 @@ impl Operator for Conv2D {
     /// # Arguments
     ///
     /// * `xs`: [0] input activation map BxCxHxW, [1] kernels ("compressed") 1xKxKxC_out [2] bias 1xC_out.
-    fn forward<T: Float + FromPrimitive + 'static>(&self, xs: Vec<Tensor<T>>) -> Tensor<T>
+    fn forward<T: Primitive + 'static>(&self, xs: Vec<Tensor<T>>) -> Tensor<T>
     where
         Array<T, Ix2>: Dot<Array<T, Ix2>, Output = Array<T, Ix2>>,
     {

@@ -1,6 +1,6 @@
-use super::tensor::Tensor;
+use super::tensor::{Primitive, Tensor};
 use ndarray::{ArrayD, ScalarOperand};
-use num_traits::{cast::FromPrimitive, float::Float};
+use num_traits::Signed;
 use std::ops;
 use std::ops::{AddAssign, Sub, Neg, SubAssign, Mul, Div, MulAssign, DivAssign};
 
@@ -30,7 +30,7 @@ use std::ops::{AddAssign, Sub, Neg, SubAssign, Mul, Div, MulAssign, DivAssign};
 // &A + &B
 impl<T> ops::Add<&Tensor<T>> for &Tensor<T>
     where
-        T: Float + FromPrimitive,
+        T: Primitive,
 {
     type Output = Tensor<T>;
 
@@ -43,7 +43,7 @@ impl<T> ops::Add<&Tensor<T>> for &Tensor<T>
 // A + B
 impl<T> ops::Add<Tensor<T>> for Tensor<T>
     where
-        T: Float + FromPrimitive,
+        T: Primitive,
 {
     type Output = Tensor<T>;
     fn add(mut self, rhs: Tensor<T>) -> Tensor<T> {
@@ -59,7 +59,7 @@ impl<T> ops::Add<Tensor<T>> for Tensor<T>
 // A += &B
 impl<T> AddAssign<&Tensor<T>> for Tensor<T>
     where
-        T: Float + FromPrimitive,
+        T: Primitive,
         ArrayD<T>: for<'a> AddAssign<&'a ArrayD<T>>,
 {
     fn add_assign(&mut self, rhs: &Tensor<T>) {
@@ -72,7 +72,7 @@ impl<T> AddAssign<&Tensor<T>> for Tensor<T>
 // A + &B, add(&B) for A
 impl<T> ops::Add<&Tensor<T>> for Tensor<T>
     where
-        T: Float + FromPrimitive,
+        T: Primitive,
 {
     type Output = Tensor<T>;
     fn add(mut self, rhs: &Tensor<T>) -> Self::Output {
@@ -91,7 +91,7 @@ impl<T> ops::Add<&Tensor<T>> for Tensor<T>
 }
 
 impl<T> Neg for Tensor<T> where
-    T: Float + FromPrimitive
+    T: Primitive + Signed
 {
     type Output = Tensor<T>;
 
@@ -102,7 +102,7 @@ impl<T> Neg for Tensor<T> where
 }
 
 impl<T> Neg for &Tensor<T> where
-    T: Float + FromPrimitive
+    T: Primitive + Signed
 {
     type Output = Tensor<T>;
 
@@ -114,39 +114,42 @@ impl<T> Neg for &Tensor<T> where
 
 impl<T> Sub<&Tensor<T>> for Tensor<T>
     where
-        T: Float + FromPrimitive,
+        T: Primitive,
 {
     type Output = Tensor<T>;
     fn sub(self, rhs: &Tensor<T>) -> Self::Output {
-        self + (-rhs)
+        {
+            let mut a = self.data.borrow_mut();
+            let b = rhs.data.borrow();
+            a.zip_mut_with(&b, move |y, &x| *y = *y - x);
+        }
+        self
     }
 }
 
 impl<T> Sub<Tensor<T>> for Tensor<T>
     where
-        T: Float + FromPrimitive,
+        T: Primitive,
 {
     type Output = Tensor<T>;
     fn sub(self, rhs: Tensor<T>) -> Self::Output {
-        self + (-rhs)
+        self - &rhs
     }
 }
 
 impl<T> Sub<&Tensor<T>> for &Tensor<T>
     where
-        T: Float + FromPrimitive,
+        T: Primitive,
 {
     type Output = Tensor<T>;
     fn sub(self, rhs: &Tensor<T>) -> Self::Output {
-        // avoid creating two new arrays as you would with `self + &(-rhs)`, instead re-use `-rhs`
         let a = &*self.data();
-        let t = -rhs;
-        t.data_mut().zip_mut_with(a, move |y, &x| *y = x + *y);
-        t
+        let b = &*rhs.data();
+        Tensor::from(a - b)
     }
 }
 
-impl<T> SubAssign<&Tensor<T>> for &Tensor<T> where T: Float + FromPrimitive, ArrayD<T>: for<'a> SubAssign<&'a ArrayD<T>>, {
+impl<T> SubAssign<&Tensor<T>> for &Tensor<T> where T: Primitive, ArrayD<T>: for<'a> SubAssign<&'a ArrayD<T>>, {
     fn sub_assign(&mut self, rhs: &Tensor<T>) {
         let mut a = self.data_mut();
         let b = &*rhs.data();
@@ -154,7 +157,7 @@ impl<T> SubAssign<&Tensor<T>> for &Tensor<T> where T: Float + FromPrimitive, Arr
     }
 }
 
-impl<T: Float + FromPrimitive> PartialEq<Tensor<T>> for Tensor<T> {
+impl<T: Primitive> PartialEq<Tensor<T>> for Tensor<T> {
     fn eq(&self, other: &Tensor<T>) -> bool {
         *self.data() == *other.data()
     }
@@ -166,7 +169,7 @@ impl<T: Float + FromPrimitive> PartialEq<Tensor<T>> for Tensor<T> {
 // elementwise-multiplication
 impl<T> Mul<&Tensor<T>> for &Tensor<T>
     where
-        T: Float + FromPrimitive,
+        T: Primitive,
 {
     type Output = Tensor<T>;
     fn mul(self, rhs: &Tensor<T>) -> Self::Output {
@@ -177,7 +180,7 @@ impl<T> Mul<&Tensor<T>> for &Tensor<T>
 
 impl<T> Mul<&Tensor<T>> for Tensor<T>
     where
-        T: Float + FromPrimitive,
+        T: Primitive,
 {
     type Output = Tensor<T>;
     fn mul(self, rhs: &Tensor<T>) -> Self::Output {
@@ -189,7 +192,7 @@ impl<T> Mul<&Tensor<T>> for Tensor<T>
 
 impl<T> Mul<Tensor<T>> for Tensor<T>
     where
-        T: Float + FromPrimitive,
+        T: Primitive,
 {
     type Output = Tensor<T>;
     fn mul(self, rhs: Tensor<T>) -> Self::Output {
@@ -201,7 +204,7 @@ impl<T> Mul<Tensor<T>> for Tensor<T>
 
 // scalar operations
 impl<T> Mul<T> for Tensor<T> where
-    T: Float + FromPrimitive + ScalarOperand {
+    T: Primitive + ScalarOperand {
     type Output = Tensor<T>;
     fn mul(self, rhs: T) -> Self::Output {
         Tensor::from(self.data().to_owned() * rhs)
@@ -209,7 +212,7 @@ impl<T> Mul<T> for Tensor<T> where
 }
 
 impl<T> Mul<T> for &Tensor<T> where
-    T: Float + FromPrimitive + ScalarOperand {
+    T: Primitive + ScalarOperand {
     type Output = Tensor<T>;
     fn mul(self, rhs: T) -> Self::Output {
         Tensor::from(self.data().to_owned() * rhs)
@@ -217,7 +220,7 @@ impl<T> Mul<T> for &Tensor<T> where
 }
 
 impl<T> MulAssign<T> for Tensor<T> where
-    T: Float + FromPrimitive + ScalarOperand + MulAssign,
+    T: Primitive + ScalarOperand + MulAssign,
 {
     fn mul_assign(&mut self, rhs: T) {
         let mut a = self.data_mut();
@@ -226,7 +229,7 @@ impl<T> MulAssign<T> for Tensor<T> where
 }
 
 impl<T> Div<T> for Tensor<T> where
-    T: Float + FromPrimitive + ScalarOperand {
+    T: Primitive + ScalarOperand {
     type Output = Tensor<T>;
     fn div(self, rhs: T) -> Self::Output {
         Tensor::from(self.data().to_owned() / rhs)
@@ -234,7 +237,7 @@ impl<T> Div<T> for Tensor<T> where
 }
 
 impl<T> Div<T> for &Tensor<T> where
-    T: Float + FromPrimitive + ScalarOperand {
+    T: Primitive + ScalarOperand {
     type Output = Tensor<T>;
     fn div(self, rhs: T) -> Self::Output {
         Tensor::from(self.data().to_owned() / rhs)
@@ -242,7 +245,7 @@ impl<T> Div<T> for &Tensor<T> where
 }
 
 impl<T> DivAssign<T> for Tensor<T> where
-    T: Float + FromPrimitive + ScalarOperand + DivAssign,
+    T: Primitive + ScalarOperand + DivAssign,
 {
     fn div_assign(&mut self, rhs: T) {
         let mut a = self.data_mut();
@@ -296,6 +299,24 @@ mod tests {
         assert!(c == d);
         // new tensor
         let new_t = &c + &d;
+        assert!(new_t != c && c == d);
+    }
+    #[test]
+    fn test_subs() {
+        let mut a = Tensor::from(ArrayD::<f64>::ones(IxDyn(&[1, 10])));
+        let b = Tensor::from(ArrayD::<f64>::ones(IxDyn(&[1, 10])) * 2.0);
+
+        // no copy subs
+        a = a - &b;
+        assert!(a == Tensor::from(ArrayD::<f64>::ones(IxDyn(&[1, 10])) * -1.0));
+        let c: Tensor<f64> = a - b;
+        assert!(c == Tensor::from(ArrayD::<f64>::ones(IxDyn(&[1, 10])) * -3.0));
+        // copy same memory, c mutated as well
+        let mut d = c.clone();
+        d.fill(7.0);
+        assert!(c == d);
+        // new tensor
+        let new_t = &c - &d;
         assert!(new_t != c && c == d);
     }
 

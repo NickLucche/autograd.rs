@@ -1,9 +1,9 @@
 use num_traits::{Float, FromPrimitive};
-use crate::tensor::tensor::Tensor;
+use crate::tensor::tensor::{Powi, Primitive, Tensor};
 use super::layers::Layer;
 
 // you have to define the forward on your own
-pub trait NN<T: Float+FromPrimitive+'static>{
+pub trait NN<T: Primitive+'static> where Tensor<T>: Powi {
     fn layers(&self)->Vec<Box<dyn Layer<T>>>; // TODO experimental use of Box, may have to change for API
     fn parameters(&self)->Vec<Tensor<T>> {
         // accumulate parameters and return them so that optimizer can use them

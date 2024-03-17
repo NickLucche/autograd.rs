@@ -1,13 +1,12 @@
-use num_traits::{Float, FromPrimitive};
-
 use crate::operators;
 use crate::tensor::init::calculate_fan_in_and_fan_out;
+use crate::tensor::tensor::{Powi, Primitive};
 use crate::{
     operators::operators::{Operator, Operators},
     tensor::tensor::Tensor,
 };
 
-pub trait Layer<T: Float + FromPrimitive + 'static> {
+pub trait Layer<T: Primitive + 'static> where Tensor<T>: Powi {
     // ops can either be lazily or eagerly initialized
     fn get_op_subgraph(&self) -> Vec<Operators>;
     fn parameters(&self) -> Vec<Tensor<T>>;
@@ -48,7 +47,7 @@ pub struct MeanSquaredError;
 
 impl<T: 'static> Layer<T> for Identity
 where
-    T: Float + FromPrimitive,
+    T: Primitive, Tensor<T>: Powi
 {
     fn get_op_subgraph(&self) -> Vec<Operators> {
         vec![Operators::Identity(operators::operators::Identity)]
@@ -100,7 +99,7 @@ impl Layer<f32> for Linear {
 
 impl<T: 'static> Layer<T> for ReLU
 where
-    T: Float + FromPrimitive,
+    T: Primitive, Tensor<T>: Powi
 {
     fn get_op_subgraph(&self) -> Vec<Operators> {
         vec![Operators::ReLU(operators::operators::ReLU)]
@@ -111,7 +110,7 @@ where
 }
 impl<T: 'static> Layer<T> for Sigmoid
 where
-    T: Float + FromPrimitive,
+    T: Primitive, Tensor<T>: Powi
 {
     fn get_op_subgraph(&self) -> Vec<Operators> {
         vec![Operators::Sigmoid(operators::operators::Sigmoid)]
@@ -122,7 +121,7 @@ where
 }
 impl<T: 'static> Layer<T> for MeanSquaredError
 where
-    T: Float + FromPrimitive,
+    T: Primitive, Tensor<T>: Powi
 {
     fn get_op_subgraph(&self) -> Vec<Operators> {
         vec![Operators::MeanSquaredError(

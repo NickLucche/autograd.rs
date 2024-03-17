@@ -1,5 +1,5 @@
 use crate::operators::operators::{Operator, Operators};
-use crate::tensor::tensor::Tensor;
+use crate::tensor::tensor::{Powi, Primitive, Tensor};
 use ndarray::linalg::Dot;
 use ndarray::{Array, Dimension, Ix2};
 use num_traits::{Float, FromPrimitive};
@@ -8,7 +8,7 @@ use std::rc::Rc;
 // NOTE not thread-safe!
 type SharedPtr<T> = Rc<RefCell<T>>;
 
-pub struct Node<T: Float + FromPrimitive> {
+pub struct Node<T: Primitive> {
     pub operator: Operators,
     pub variables: Vec<Tensor<T>>,
     // keep reference to the op which generated each input var, if any!
@@ -20,7 +20,7 @@ pub struct Node<T: Float + FromPrimitive> {
 
 impl<T> Node<T>
 where
-    T: Float + FromPrimitive,
+    T: Primitive,
 {
     pub fn new(
         operator: Operators,
@@ -47,7 +47,7 @@ where
 
 pub fn backward_algo(node: SharedPtr<Node<f32>>, prev_grad: Tensor<f32>)
 where
-    Array<f32, Ix2>: Dot<Array<f32, Ix2>, Output = Array<f32, Ix2>>,
+    Array<f32, Ix2>: Dot<Array<f32, Ix2>, Output = Array<f32, Ix2>>, Tensor<f32>: Powi
 {
     let mut node = node.borrow_mut();
     // 1. compute gradient(s) of current operator wrt its input(s)
