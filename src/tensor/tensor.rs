@@ -41,7 +41,7 @@ where
     *a_t += *&b_t;
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct CudaData<T> {
     pub ptr: *mut T,
 }
@@ -62,6 +62,7 @@ macro_rules! storage_apply {
     };
 }
 
+#[macro_export]
 macro_rules! storage_apply2 {
     ($value1:expr, $value2:expr, $func_array:expr, $func_cuda:expr) => {
         match ($value1, $value2) {
@@ -104,6 +105,13 @@ impl<T: Primitive> StorageType<T> {
             &self,
             |x: &ArrayD<T>| x.is_standard_layout(),
             |x: &CudaData<T>| true
+        )
+    }
+    pub fn is_empty(&self) -> bool {
+        storage_apply!(
+            &self,
+            |x: &ArrayD<T>| self.len()==0,
+            |x: &CudaData<T>| self.len()==0
         )
     }
     pub fn fill(&mut self, el: T) {
@@ -191,6 +199,15 @@ impl<T: Primitive> StorageType<T> {
             panic!("Not Implemented for CudaData")
         }
     }
+
+    pub fn into_raw_vec(&self) -> Vec<T> {
+        if let StorageType::ArrayData(arr) = self {
+            arr.clone().into_raw_vec()
+        } else {
+            panic!("Not Implemented for CudaData")
+        }
+    }
+    
 }
 
 
@@ -664,11 +681,15 @@ mod tests {
         assert_ne!(ptr::addr_of!(t), ptr::addr_of!(t2));
 
         let tdata = &*t.data();
-        let tp = tdata as *const ArrayD<f64>;
-        let t2data = &*t2.data();
-        let tp2 = t2data as *const ArrayD<f64>;
-        assert!(tp == tp2);
-        assert_eq!(*t.data(), *t2.data());
+        if let StorageType::ArrayData(arr) = tdata {
+            let tp: *const ArrayBase<ndarray::OwnedRepr<f64>, Dim<ndarray::IxDynImpl>> = arr as *const ArrayD<f64>;
+            let t2data = &*t2.data();
+            if let StorageType::ArrayData(arr2) = t2data {
+                let tp2 = arr2 as *const ArrayD<f64>;
+                assert!(tp == tp2);
+            }
+            assert_eq!(*t.data(), *t2.data());
+        }
     }
     #[test]
     fn test_reshape() {

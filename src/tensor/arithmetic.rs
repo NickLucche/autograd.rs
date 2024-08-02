@@ -1,8 +1,8 @@
 /* Here we define direct operators for Tensor types; initially this would just forward to ndarray,
-** handling the RcRefCell wrapper. With the addition of cuda tensors, there's a new layer in between 
+** handling the RcRefCell wrapper. With the addition of cuda tensors, there's a new layer in between
 ** so ideally operator should traverse the following: Tensor->StorageType->RcRefCell->ArrayD | CudaArray.
 ** In practice, we don't always have an impl for each abstraction layer but rather one function at the Tensor
-** level that implements the dispatching down to the most concrete type (as of now). 
+** level that implements the dispatching down to the most concrete type (as of now).
 */
 
 use super::tensor::{Primitive, StorageType, Tensor};
@@ -91,7 +91,9 @@ where
         //     a.zip_mut_with(&b, move |y, &x| *y = *y + x);
         // }
         // self
-        tensor_op_mut(&mut self, &rhs, |a, b| a.zip_mut_with(b, move |y, &x| *y = *y + x));
+        tensor_op_mut(&mut self, &rhs, |a, b| {
+            a.zip_mut_with(b, move |y, &x| *y = *y + x)
+        });
         self
     }
 }
@@ -106,7 +108,7 @@ where
         // let mut a = self.data_mut();
         // let b = &*rhs.data();
         // *a += b;
-        
+
         tensor_op_mut(self, &rhs, |a, b| *a += b);
     }
 }
@@ -128,7 +130,9 @@ where
         //     // syntactically uglier, but should allow us to avoid the AddAssign trait
         //     a.zip_mut_with(b, move |y, &x| *y = *y + x);
         // }
-        tensor_op_mut(&mut self, &rhs, |a, b| a.zip_mut_with(b, move |y, &x| *y = *y + x));
+        tensor_op_mut(&mut self, &rhs, |a, b| {
+            a.zip_mut_with(b, move |y, &x| *y = *y + x)
+        });
         self
     }
 }
@@ -168,7 +172,9 @@ where
         //     let b = rhs.data.borrow();
         //     a.zip_mut_with(&b, move |y, &x| *y = *y - x);
         // }
-        tensor_op_mut(&mut self, rhs, |a, b| a.zip_mut_with(&b, move |y, &x| *y = *y - x));
+        tensor_op_mut(&mut self, rhs, |a, b| {
+            a.zip_mut_with(&b, move |y, &x| *y = *y - x)
+        });
         self
     }
 }
@@ -234,7 +240,9 @@ where
 {
     type Output = Tensor<T>;
     fn mul(mut self, rhs: &Tensor<T>) -> Self::Output {
-        tensor_op_mut(&mut self, &rhs, |a, b| a.zip_mut_with(b, move |y, &x| *y = *y * x));
+        tensor_op_mut(&mut self, &rhs, |a, b| {
+            a.zip_mut_with(b, move |y, &x| *y = *y * x)
+        });
         self
     }
 }
@@ -245,7 +253,9 @@ where
 {
     type Output = Tensor<T>;
     fn mul(mut self, rhs: Tensor<T>) -> Self::Output {
-        tensor_op_mut(&mut self, &rhs, |a, b| a.zip_mut_with(b, move |y, &x| *y = *y * x));
+        tensor_op_mut(&mut self, &rhs, |a, b| {
+            a.zip_mut_with(b, move |y, &x| *y = *y * x)
+        });
         self
     }
 }
@@ -322,7 +332,6 @@ impl Sub<Tensor<f32>> for f32 {
         } else {
             todo!()
         }
-        
     }
 }
 
@@ -406,12 +415,18 @@ mod tests {
         let b = Tensor::from(ArrayD::<f32>::ones(IxDyn(&[2, 2])) * 2.0);
         let c = &a * &b;
         assert!(&a * 2.0 == c);
-        assert!(&*c.data() == aview2(&[[2., 4.], [6., 8.]]).into_dyn());
-        let aclone = a.clone();
-        {
-            let c_array_addr = &*c.data() as *const ArrayD<f32>;
+        let aclone = a.clone(); // same ptr to data, just shell is copied
+
+        let adata = &*aclone.data();
+        let cdata = &*c.data();
+        // ptr comparisons are a bit ugly rn :(
+        if let (StorageType::ArrayData(carr), StorageType::ArrayData(aarr)) = (cdata, adata) {
+            // mul validity
+            assert!(carr == aview2(&[[2., 4.], [6., 8.]]).into_dyn());
+
+            let c_array_addr = carr as *const ArrayD<f32>;
             // this borrows a's array, triggering runtime Rf check
-            let a_array_addr = &*aclone.data() as *const ArrayD<f32>;
+            let a_array_addr = aarr as *const ArrayD<f32>;
             // mul with copy
             assert!(a_array_addr != c_array_addr);
         }
@@ -419,10 +434,12 @@ mod tests {
         let c = a * &b;
         let cdata = &*c.data();
 
-        let new_array_addr = cdata as *const ArrayD<f32>;
-        let a_array_addr = &*aclone.data() as *const ArrayD<f32>;
+        if let (StorageType::ArrayData(carr), StorageType::ArrayData(aarr)) = (cdata, adata) {
+            let new_array_addr = carr as *const ArrayD<f32>;
+            let a_array_addr = aarr as *const ArrayD<f32>;
 
-        // no copy mul
-        assert!(a_array_addr == new_array_addr);
+            // no copy mul
+            assert!(a_array_addr == new_array_addr);
+        }
     }
 }

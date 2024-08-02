@@ -1,3 +1,5 @@
+use crate::storage_apply2;
+
 use super::tensor::{CudaData, Primitive, StorageType};
 use ndarray::{ArrayD, IxDyn, ScalarOperand};
 use num_traits::Signed;
@@ -148,9 +150,47 @@ impl<T> Neg for StorageType<T> {
 }
 
 // Equality comparison
-impl<T> PartialEq for StorageType<T> {
-    fn eq(&self, other: &Self) -> bool {
-        todo!()
+impl<T: Primitive> PartialEq<StorageType<T>> for StorageType<T> {
+    fn eq(&self, other: &StorageType<T>) -> bool {
+        storage_apply2!(
+            self,
+            other,
+            |a: &ArrayD<T>, b: &ArrayD<T>| a == b,
+            |a: &CudaData<T>, b: &CudaData<T>| todo!()
+        )
+    }
+    fn ne(&self, other: &StorageType<T>) -> bool {
+        storage_apply2!(
+            self,
+            other,
+            |a: &ArrayD<T>, b: &ArrayD<T>| a != b,
+            |a: &CudaData<T>, b: &CudaData<T>| todo!()
+        )
+    }
+}
+impl<T: Primitive> PartialEq<ArrayD<T>> for &StorageType<T> {
+    fn eq(&self, other: &ArrayD<T>) -> bool {
+        if let StorageType::ArrayData(arr) = &self {
+            return arr == other;
+        } else {
+            todo!()
+        }
+    }
+    fn ne(&self, other: &ArrayD<T>) -> bool {
+        if let StorageType::ArrayData(arr) = &self {
+            return arr != other;
+        } else {
+            todo!()
+        }
+    }
+}
+
+impl<T: Primitive> PartialEq<ArrayD<T>> for StorageType<T> {
+    fn eq(&self, other: &ArrayD<T>) -> bool {
+        return &self == other;
+    }
+    fn ne(&self, other: &ArrayD<T>) -> bool {
+        return &self != other;
     }
 }
 
@@ -227,7 +267,6 @@ where
     }
 }
 
-
 /** Indexing **/
 // impl<T> StorageType<T> {
 //     fn compute_flat_index(&self, index: &[usize]) -> usize {
@@ -267,7 +306,7 @@ impl<T> IndexMut<&[usize]> for StorageType<T> {
 // index with fixed-size arrays
 macro_rules! add_indexing {
     ($dims:expr) => {
-        impl<T:Primitive> Index<[usize; $dims]> for StorageType<T> {
+        impl<T: Primitive> Index<[usize; $dims]> for StorageType<T> {
             type Output = T;
 
             fn index(&self, index: [usize; $dims]) -> &Self::Output {
@@ -279,7 +318,7 @@ macro_rules! add_indexing {
             }
         }
 
-        impl<T:Primitive> IndexMut<[usize; $dims]> for StorageType<T> {
+        impl<T: Primitive> IndexMut<[usize; $dims]> for StorageType<T> {
             fn index_mut(&mut self, index: [usize; $dims]) -> &mut Self::Output {
                 if let StorageType::ArrayData(arr) = self {
                     return arr.index_mut(index);
