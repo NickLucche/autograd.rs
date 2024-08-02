@@ -1,8 +1,44 @@
-use super::tensor::{Primitive, Tensor};
-use ndarray::{ArrayD, ScalarOperand};
+/* Here we define direct operators for Tensor types; initially this would just forward to ndarray,
+** handling the RcRefCell wrapper. With the addition of cuda tensors, there's a new layer in between 
+** so ideally operator should traverse the following: Tensor->StorageType->RcRefCell->ArrayD | CudaArray.
+** In practice, we don't always have an impl for each abstraction layer but rather one function at the Tensor
+** level that implements the dispatching down to the most concrete type (as of now). 
+*/
+
+use super::tensor::{Primitive, StorageType, Tensor};
+use ndarray::{ArrayD, IxDyn, ScalarOperand};
 use num_traits::Signed;
-use std::ops;
-use std::ops::{AddAssign, Sub, Neg, SubAssign, Mul, Div, MulAssign, DivAssign};
+use std::ops::{self, Not};
+use std::ops::{AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
+
+// dispatching helper functions
+fn tensor_op<T: Primitive>(
+    lhs: &Tensor<T>,
+    rhs: &Tensor<T>,
+    cpu_f: fn(&ArrayD<T>, &ArrayD<T>) -> Tensor<T>,
+) -> Tensor<T> {
+    let storage = lhs.data();
+    let rstorage = rhs.data();
+    match (&*storage, &*rstorage) {
+        (StorageType::ArrayData(arr_a), StorageType::ArrayData(arr_b)) => cpu_f(arr_a, arr_b),
+        (StorageType::CudaData(arr_a), StorageType::CudaData(arr_b)) => todo!(),
+        _ => panic!("Tensors must be on same device"), // TODO return proper result
+    }
+}
+
+fn tensor_op_mut<T: Primitive>(
+    lhs: &mut Tensor<T>,
+    rhs: &Tensor<T>,
+    cpu_f: impl Fn(&mut ArrayD<T>, &ArrayD<T>),
+) {
+    let mut storage = lhs.data_mut();
+    let rstorage = rhs.data();
+    match (&mut *storage, &*rstorage) {
+        (StorageType::ArrayData(arr_a), StorageType::ArrayData(arr_b)) => cpu_f(arr_a, arr_b),
+        (StorageType::CudaData(arr_a), StorageType::CudaData(arr_b)) => todo!(),
+        _ => panic!("Tensors must be on same device"),
+    }
+}
 
 /**
 * Arithmetic rules ndarray
@@ -29,69 +65,77 @@ use std::ops::{AddAssign, Sub, Neg, SubAssign, Mul, Div, MulAssign, DivAssign};
 
 // &A + &B
 impl<T> ops::Add<&Tensor<T>> for &Tensor<T>
-    where
-        T: Primitive,
+where
+    T: Primitive,
 {
     type Output = Tensor<T>;
 
     fn add(self, rhs: &Tensor<T>) -> Self::Output {
-        let res = &*self.data() + &*rhs.data();
-        Tensor::from(res)
+        tensor_op(&self, rhs, |a, b| {
+            let res = a + b;
+            Tensor::from(res)
+        })
     }
 }
 
 // A + B
 impl<T> ops::Add<Tensor<T>> for Tensor<T>
-    where
-        T: Primitive,
+where
+    T: Primitive,
 {
     type Output = Tensor<T>;
     fn add(mut self, rhs: Tensor<T>) -> Tensor<T> {
-        {
-            let mut a = self.data.borrow_mut();
-            let b = rhs.data.borrow();
-            a.zip_mut_with(&b, move |y, &x| *y = *y + x);
-        }
+        // {
+        //     let mut a = self.data.borrow_mut();
+        //     let b = rhs.data.borrow();
+        //     a.zip_mut_with(&b, move |y, &x| *y = *y + x);
+        // }
+        // self
+        tensor_op_mut(&mut self, &rhs, |a, b| a.zip_mut_with(b, move |y, &x| *y = *y + x));
         self
     }
 }
 
 // A += &B
 impl<T> AddAssign<&Tensor<T>> for Tensor<T>
-    where
-        T: Primitive,
-        ArrayD<T>: for<'a> AddAssign<&'a ArrayD<T>>,
+where
+    T: Primitive,
+    ArrayD<T>: for<'a> AddAssign<&'a ArrayD<T>>,
 {
     fn add_assign(&mut self, rhs: &Tensor<T>) {
-        let mut a = self.data_mut();
-        let b = &*rhs.data();
-        *a += b;
+        // let mut a = self.data_mut();
+        // let b = &*rhs.data();
+        // *a += b;
+        
+        tensor_op_mut(self, &rhs, |a, b| *a += b);
     }
 }
 
 // A + &B, add(&B) for A
 impl<T> ops::Add<&Tensor<T>> for Tensor<T>
-    where
-        T: Primitive,
+where
+    T: Primitive,
 {
     type Output = Tensor<T>;
     fn add(mut self, rhs: &Tensor<T>) -> Self::Output {
-        {
-            let mut a = self.data_mut();
-            let b = &*rhs.data();
-            // NOTE to have op be in-place with same signature, we would need to own the
-            // data (not just the tensor). Since we can only own a mut& to data, this is the
-            // only in-place operation that ndarray allows us to use to achieve the same in-place result
-            // *a += b;
-            // syntactically uglier, but should allow us to avoid the AddAssign trait
-            a.zip_mut_with(b, move |y, &x| *y = *y + x);
-        }
+        // {
+        //     let mut a = self.data_mut();
+        //     let b = &*rhs.data();
+        //     // NOTE to have op be in-place with same signature, we would need to own the
+        //     // data (not just the tensor). Since we can only own a mut& to data, this is the
+        //     // only in-place operation that ndarray allows us to use to achieve the same in-place result
+        //     // *a += b;
+        //     // syntactically uglier, but should allow us to avoid the AddAssign trait
+        //     a.zip_mut_with(b, move |y, &x| *y = *y + x);
+        // }
+        tensor_op_mut(&mut self, &rhs, |a, b| a.zip_mut_with(b, move |y, &x| *y = *y + x));
         self
     }
 }
 
-impl<T> Neg for Tensor<T> where
-    T: Primitive + Signed
+impl<T> Neg for Tensor<T>
+where
+    T: Primitive + Signed,
 {
     type Output = Tensor<T>;
 
@@ -101,8 +145,9 @@ impl<T> Neg for Tensor<T> where
     }
 }
 
-impl<T> Neg for &Tensor<T> where
-    T: Primitive + Signed
+impl<T> Neg for &Tensor<T>
+where
+    T: Primitive + Signed,
 {
     type Output = Tensor<T>;
 
@@ -113,23 +158,24 @@ impl<T> Neg for &Tensor<T> where
 }
 
 impl<T> Sub<&Tensor<T>> for Tensor<T>
-    where
-        T: Primitive,
+where
+    T: Primitive,
 {
     type Output = Tensor<T>;
-    fn sub(self, rhs: &Tensor<T>) -> Self::Output {
-        {
-            let mut a = self.data.borrow_mut();
-            let b = rhs.data.borrow();
-            a.zip_mut_with(&b, move |y, &x| *y = *y - x);
-        }
+    fn sub(mut self, rhs: &Tensor<T>) -> Self::Output {
+        // {
+        //     let mut a = self.data.borrow_mut();
+        //     let b = rhs.data.borrow();
+        //     a.zip_mut_with(&b, move |y, &x| *y = *y - x);
+        // }
+        tensor_op_mut(&mut self, rhs, |a, b| a.zip_mut_with(&b, move |y, &x| *y = *y - x));
         self
     }
 }
 
 impl<T> Sub<Tensor<T>> for Tensor<T>
-    where
-        T: Primitive,
+where
+    T: Primitive,
 {
     type Output = Tensor<T>;
     fn sub(self, rhs: Tensor<T>) -> Self::Output {
@@ -138,8 +184,8 @@ impl<T> Sub<Tensor<T>> for Tensor<T>
 }
 
 impl<T> Sub<&Tensor<T>> for &Tensor<T>
-    where
-        T: Primitive,
+where
+    T: Primitive,
 {
     type Output = Tensor<T>;
     fn sub(self, rhs: &Tensor<T>) -> Self::Output {
@@ -149,7 +195,11 @@ impl<T> Sub<&Tensor<T>> for &Tensor<T>
     }
 }
 
-impl<T> SubAssign<&Tensor<T>> for &Tensor<T> where T: Primitive, ArrayD<T>: for<'a> SubAssign<&'a ArrayD<T>>, {
+impl<T> SubAssign<&Tensor<T>> for &Tensor<T>
+where
+    T: Primitive,
+    ArrayD<T>: for<'a> SubAssign<&'a ArrayD<T>>,
+{
     fn sub_assign(&mut self, rhs: &Tensor<T>) {
         let mut a = self.data_mut();
         let b = &*rhs.data();
@@ -168,8 +218,8 @@ impl<T: Primitive> PartialEq<Tensor<T>> for Tensor<T> {
 
 // elementwise-multiplication
 impl<T> Mul<&Tensor<T>> for &Tensor<T>
-    where
-        T: Primitive,
+where
+    T: Primitive,
 {
     type Output = Tensor<T>;
     fn mul(self, rhs: &Tensor<T>) -> Self::Output {
@@ -179,47 +229,50 @@ impl<T> Mul<&Tensor<T>> for &Tensor<T>
 }
 
 impl<T> Mul<&Tensor<T>> for Tensor<T>
-    where
-        T: Primitive,
+where
+    T: Primitive,
 {
     type Output = Tensor<T>;
-    fn mul(self, rhs: &Tensor<T>) -> Self::Output {
-        let b = &*rhs.data();
-        self.data_mut().zip_mut_with(b, move |y, &x| *y = *y * x);
+    fn mul(mut self, rhs: &Tensor<T>) -> Self::Output {
+        tensor_op_mut(&mut self, &rhs, |a, b| a.zip_mut_with(b, move |y, &x| *y = *y * x));
         self
     }
 }
 
 impl<T> Mul<Tensor<T>> for Tensor<T>
-    where
-        T: Primitive,
+where
+    T: Primitive,
 {
     type Output = Tensor<T>;
-    fn mul(self, rhs: Tensor<T>) -> Self::Output {
-        let b = &*rhs.data();
-        self.data_mut().zip_mut_with(b, move |y, &x| *y = *y * x);
+    fn mul(mut self, rhs: Tensor<T>) -> Self::Output {
+        tensor_op_mut(&mut self, &rhs, |a, b| a.zip_mut_with(b, move |y, &x| *y = *y * x));
         self
     }
 }
 
 // scalar operations
-impl<T> Mul<T> for Tensor<T> where
-    T: Primitive + ScalarOperand {
+impl<T> Mul<T> for Tensor<T>
+where
+    T: Primitive + ScalarOperand,
+{
     type Output = Tensor<T>;
     fn mul(self, rhs: T) -> Self::Output {
         Tensor::from(self.data().to_owned() * rhs)
     }
 }
 
-impl<T> Mul<T> for &Tensor<T> where
-    T: Primitive + ScalarOperand {
+impl<T> Mul<T> for &Tensor<T>
+where
+    T: Primitive + ScalarOperand,
+{
     type Output = Tensor<T>;
     fn mul(self, rhs: T) -> Self::Output {
         Tensor::from(self.data().to_owned() * rhs)
     }
 }
 
-impl<T> MulAssign<T> for Tensor<T> where
+impl<T> MulAssign<T> for Tensor<T>
+where
     T: Primitive + ScalarOperand + MulAssign,
 {
     fn mul_assign(&mut self, rhs: T) {
@@ -228,23 +281,28 @@ impl<T> MulAssign<T> for Tensor<T> where
     }
 }
 
-impl<T> Div<T> for Tensor<T> where
-    T: Primitive + ScalarOperand {
+impl<T> Div<T> for Tensor<T>
+where
+    T: Primitive + ScalarOperand,
+{
     type Output = Tensor<T>;
     fn div(self, rhs: T) -> Self::Output {
         Tensor::from(self.data().to_owned() / rhs)
     }
 }
 
-impl<T> Div<T> for &Tensor<T> where
-    T: Primitive + ScalarOperand {
+impl<T> Div<T> for &Tensor<T>
+where
+    T: Primitive + ScalarOperand,
+{
     type Output = Tensor<T>;
     fn div(self, rhs: T) -> Self::Output {
         Tensor::from(self.data().to_owned() / rhs)
     }
 }
 
-impl<T> DivAssign<T> for Tensor<T> where
+impl<T> DivAssign<T> for Tensor<T>
+where
     T: Primitive + ScalarOperand + DivAssign,
 {
     fn div_assign(&mut self, rhs: T) {
@@ -254,23 +312,30 @@ impl<T> DivAssign<T> for Tensor<T> where
 }
 
 // Scalar - Tensor
-impl Sub<Tensor<f32>> for f32
-{
+impl Sub<Tensor<f32>> for f32 {
     type Output = Tensor<f32>;
     fn sub(self, rhs: Tensor<f32>) -> Self::Output {
-        let scalar_arr = ndarray::array![self].into_dyn();
         let b = &*rhs.data();
-        Tensor::from(scalar_arr - b)
+        if let StorageType::ArrayData(arr) = b {
+            let scalar_arr = ndarray::array![self].into_dyn();
+            Tensor::from(scalar_arr - arr)
+        } else {
+            todo!()
+        }
+        
     }
 }
 
-impl Sub<&Tensor<f32>> for f32
-{
+impl Sub<&Tensor<f32>> for f32 {
     type Output = Tensor<f32>;
     fn sub(self, rhs: &Tensor<f32>) -> Self::Output {
-        let scalar_arr = ndarray::array![self].into_dyn();
         let b = &*rhs.data();
-        Tensor::from(scalar_arr - b)
+        if let StorageType::ArrayData(arr) = b {
+            let scalar_arr = ndarray::array![self].into_dyn();
+            Tensor::from(scalar_arr - arr)
+        } else {
+            todo!()
+        }
     }
 }
 // FIXME remove T: Float trait to implement this and properly support ints
@@ -281,7 +346,6 @@ mod tests {
     use super::*;
     use ndarray::prelude::*;
     use std::ptr;
-
 
     #[test]
     fn test_adds() {
@@ -351,7 +415,6 @@ mod tests {
             // mul with copy
             assert!(a_array_addr != c_array_addr);
         }
-
 
         let c = a * &b;
         let cdata = &*c.data();
