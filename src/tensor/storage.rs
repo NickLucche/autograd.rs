@@ -1,8 +1,9 @@
-use super::tensor::{Primitive, StorageType, CudaData};
+use super::tensor::{CudaData, Primitive, StorageType};
 use ndarray::{ArrayD, IxDyn, ScalarOperand};
 use num_traits::Signed;
 use std::ops::{self, Not};
 use std::ops::{AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
+use std::ops::{Index, IndexMut};
 
 // Tensor + Tensor => StorageType + StorageType  => Array + Array
 //                                              \=> CudaData + CudaData
@@ -38,7 +39,7 @@ where
     type Output = StorageType<T>;
 
     fn add(self, rhs: &StorageType<T>) -> Self::Output {
-      todo!()
+        todo!()
     }
 }
 
@@ -49,7 +50,7 @@ where
 {
     type Output = StorageType<T>;
     fn add(mut self, rhs: StorageType<T>) -> StorageType<T> {
-      todo!()
+        todo!()
     }
 }
 
@@ -60,7 +61,7 @@ where
     ArrayD<T>: for<'a> AddAssign<&'a ArrayD<T>>,
 {
     fn add_assign(&mut self, rhs: &StorageType<T>) {
-       todo!()
+        todo!()
     }
 }
 
@@ -74,7 +75,6 @@ where
         todo!()
     }
 }
-
 
 // Subtraction
 impl<T> Sub for &StorageType<T> {
@@ -101,7 +101,7 @@ impl<T> Sub<&StorageType<T>> for StorageType<T> {
     }
 }
 
-impl<T>SubAssign<&StorageType<T>> for StorageType<T> {
+impl<T> SubAssign<&StorageType<T>> for StorageType<T> {
     fn sub_assign(&mut self, other: &StorageType<T>) {
         todo!()
     }
@@ -223,11 +223,79 @@ where
     T: Primitive + ScalarOperand + MulAssign,
 {
     fn mul_assign(&mut self, rhs: T) {
-       todo!()
+        todo!()
     }
 }
 
 
+/** Indexing **/
+// impl<T> StorageType<T> {
+//     fn compute_flat_index(&self, index: &[usize]) -> usize {
+//         // Compute a flat index from the multi-dimensional index.
+//         // This usually involves multiplying the index components by the size of the corresponding dimensions.
+//         // Here, we assume row-major order for simplicity.
+//         let mut flat_index = 0;
+//         for (i, &dim_size) in self.dims.iter().enumerate() {
+//             flat_index = flat_index * dim_size + index[i];
+//         }
+//         flat_index
+//     }
+// }
+
+impl<T> Index<&[usize]> for StorageType<T> {
+    type Output = T;
+
+    fn index(&self, index: &[usize]) -> &Self::Output {
+        if let StorageType::ArrayData(arr) = &self {
+            return &arr[index];
+        } else {
+            todo!()
+        }
+    }
+}
+
+impl<T> IndexMut<&[usize]> for StorageType<T> {
+    fn index_mut(&mut self, index: &[usize]) -> &mut Self::Output {
+        if let StorageType::ArrayData(arr) = self {
+            return arr.index_mut(index);
+        } else {
+            todo!()
+        }
+    }
+}
+
+// index with fixed-size arrays
+macro_rules! add_indexing {
+    ($dims:expr) => {
+        impl<T:Primitive> Index<[usize; $dims]> for StorageType<T> {
+            type Output = T;
+
+            fn index(&self, index: [usize; $dims]) -> &Self::Output {
+                if let StorageType::ArrayData(arr) = &self {
+                    return &arr[index];
+                } else {
+                    todo!()
+                }
+            }
+        }
+
+        impl<T:Primitive> IndexMut<[usize; $dims]> for StorageType<T> {
+            fn index_mut(&mut self, index: [usize; $dims]) -> &mut Self::Output {
+                if let StorageType::ArrayData(arr) = self {
+                    return arr.index_mut(index);
+                } else {
+                    todo!()
+                }
+            }
+        }
+    };
+}
+
+add_indexing!(1);
+add_indexing!(2);
+add_indexing!(3);
+add_indexing!(4);
+add_indexing!(5);
 
 /*************** CUDA ops ****************/
 // &A + &B
@@ -238,7 +306,7 @@ where
     type Output = CudaData<T>;
 
     fn add(self, rhs: &CudaData<T>) -> Self::Output {
-      todo!()
+        todo!()
     }
 }
 
@@ -249,7 +317,7 @@ where
 {
     type Output = CudaData<T>;
     fn add(mut self, rhs: CudaData<T>) -> CudaData<T> {
-      todo!()
+        todo!()
     }
 }
 
@@ -260,7 +328,7 @@ where
     ArrayD<T>: for<'a> AddAssign<&'a ArrayD<T>>,
 {
     fn add_assign(&mut self, rhs: &CudaData<T>) {
-       todo!()
+        todo!()
     }
 }
 

@@ -1,7 +1,7 @@
 use crate::autograd::autograd::{backward_algo, Node};
 use crate::operators::operators::shared_ptr_new;
 use ndarray::linalg::Dot;
-use ndarray::{array, Array, ArrayD, Axis, Dimension, Ix2, IxDyn};
+use ndarray::{array, Array, ArrayD, ArrayView, ArrayViewMut, Axis, Dimension, Ix2, IxDyn};
 use ndarray::iter::{IterMut, Iter};
 use std::cell::{Ref, RefCell, RefMut};
 use std::convert::From;
@@ -76,7 +76,7 @@ macro_rules! storage_apply2 {
     };
 }
 // TODO move into own file
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum StorageType<T> {
     ArrayData(Array<T, IxDyn>), // CPU
     CudaData(CudaData<T>),      // CUDA
@@ -147,7 +147,7 @@ impl<T: Primitive> StorageType<T> {
         )
     }
 
-    // TODO dont want to implement these for cuda tbh, ndarray dispatch should be handled by caller
+    // TODO dont want to implement these for cuda tbh, ndarray dispatch should be handled by caller, hence they just return ndarrays
     pub fn mapv(&self, f: impl Fn(T) -> T) -> ArrayD<T> {
         storage_apply!(&self, |x: &ArrayD<T>| x.mapv(f), |x: &CudaData<T>| todo!())
     }
@@ -160,12 +160,37 @@ impl<T: Primitive> StorageType<T> {
         storage_apply!(&self, |x: &ArrayD<T>| x.map(f), |x: &CudaData<T>| todo!())
     }
 
-    // pub fn iter_mut(&mut self) -> IterMut<T, IxDyn> {
-    //     storage_apply!(self, |x: &mut ArrayD<T>| x.iter_mut(), |x: &CudaData<T>| todo!())
-    // }
-    // pub fn iter(&self) -> Iter<T, IxDyn> {
-    //     storage_apply!(&self, |x: &ArrayD<T>| x.iter(), |x: &CudaData<T>| todo!())
-    // }
+    pub fn view(&self) -> ArrayView<T, IxDyn> {
+        if let StorageType::ArrayData(arr) = self {
+            arr.view()
+        } else {
+            panic!("Not Implemented for CudaData")
+        }
+    }
+
+    pub fn view_mut(&mut self) -> ArrayViewMut<T, IxDyn> {
+        if let StorageType::ArrayData(arr) = self {
+            arr.view_mut()
+        } else {
+            panic!("Not Implemented for CudaData")
+        }
+    }
+
+    pub fn iter(&self) -> Iter<T, IxDyn> {
+        if let StorageType::ArrayData(arr) = self {
+            arr.iter()
+        } else {
+            panic!("Not Implemented for CudaData")
+        }
+    }
+
+    pub fn iter_mut(&mut self) -> IterMut<T, IxDyn> {
+        if let StorageType::ArrayData(arr) = self {
+            arr.iter_mut()
+        } else {
+            panic!("Not Implemented for CudaData")
+        }
+    }
 }
 
 
