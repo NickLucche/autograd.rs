@@ -84,9 +84,6 @@ pub enum StorageType<T> {
 }
 
 impl<T: Primitive> StorageType<T> {
-    pub fn t(&self) -> StorageType<T> {
-        todo!()
-    }
     pub fn ndim(&self) -> usize {
         storage_apply!(&self, |x: &ArrayD<T>| x.ndim(), |x: &CudaData<T>| todo!())
     }
@@ -121,6 +118,10 @@ impl<T: Primitive> StorageType<T> {
     }
     pub fn len(&self) -> usize {
         storage_apply!(&self, |x: &ArrayD<T>| x.len(), |x: &CudaData<T>| todo!())
+    }
+
+    pub fn t_clone(&self) -> ArrayD<T> {
+        storage_apply!(&self, |x: &ArrayD<T>| x.t().to_owned(), |x: &CudaData<T>| todo!())
     }
 
     // ops
@@ -362,7 +363,7 @@ where
     }
     pub fn t_clone(&self) -> Self {
         // TODO too many copies
-        Tensor::from(self.data().t().to_owned())
+        Tensor::from(self.data().t_clone())
     }
     pub fn ndim(&self) -> usize {
         self.data().ndim()
