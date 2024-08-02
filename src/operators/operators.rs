@@ -5,7 +5,13 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use crate::autograd::autograd::Node;
-use crate::tensor::tensor::{ones_like, ones_like_f32, zeros_like, Powi, Primitive, Tensor};
+use crate::operators::functional_ndarray::{relu_backward_ndarray, relu_ndarray, im2col_ndarray};
+use crate::storage_apply;
+use crate::tensor::tensor::{
+    ones_like, ones_like_f32, zeros_like, CudaData, Powi, Primitive, StorageType, Tensor,
+};
+
+use super::functional_ndarray::im2col_ndarray_backward;
 
 type SharedPtr<T> = Rc<RefCell<T>>;
 
@@ -17,7 +23,8 @@ pub fn shared_ptr_new<T>(x: T) -> SharedPtr<T> {
 pub trait Operator {
     fn forward<T: Primitive + 'static>(&self, xs: Vec<Tensor<T>>) -> Tensor<T>
     where
-        Array<T, Ix2>: Dot<Array<T, Ix2>, Output = Array<T, Ix2>>, Tensor<T>: Powi;
+        Array<T, Ix2>: Dot<Array<T, Ix2>, Output = Array<T, Ix2>>,
+        Tensor<T>: Powi;
 
     fn backward(&self, xs: Vec<Tensor<f32>>, grad: Tensor<f32>) -> Vec<Tensor<f32>>;
 
@@ -74,30 +81,56 @@ pub struct MatMul;
 
 pub struct Mul; // TODO elementwise
 
+fn backward_dispatch(
+    xs: Vec<Tensor<f32>>,
+    grad: Tensor<f32>,
+    back_f_cpu: impl Fn(Vec<&ArrayD<f32>>, &mut ArrayD<f32>) -> Vec<ArrayD<f32>>,
+) -> Vec<Tensor<f32>> {
+    let mut v_cpu: Vec<&ArrayD<f32>> = Vec::new();
+    let mut v_cuda: Vec<&CudaData<f32>> = Vec::new();
+    let xdata = xs[0].data();
+    for x in &xs {
+        if let StorageType::ArrayData(arr) = &*xdata {
+            v_cpu.push(&arr);
+        } else if let StorageType::CudaData(arr) = &*xdata {
+            v_cuda.push(&arr);
+        }
+    }
+    if v_cpu.len() < xs.len() && v_cuda.len() < xs.len() {
+        panic!("Tensors must be on same device!");
+    }
+    let mut gstorage = grad.data_mut();
+    match &mut *gstorage {
+        StorageType::ArrayData(grad_arr) => {
+            let grads_v = back_f_cpu(v_cpu, grad_arr);
+            grads_v.into_iter().map(|g| Tensor::from(g)).collect()
+        }
+        StorageType::CudaData(grad_cuda) => todo!(),
+        _ => panic!("Tensors must be on same device"), // TODO return proper result
+    }
+}
+
 // TODO solve this variable ordering/naming problem
 impl Operator for ReLU {
     fn forward<T: Primitive + 'static>(&self, xs: Vec<Tensor<T>>) -> Tensor<T> {
-        let mut t = zeros_like(&xs[0]);
-        // TODO in_place: treat x as output and attach it to current op
-        for (tv, xv) in t.data_mut().iter_mut().zip(xs[0].data().iter()) {
-            if *xv > T::from(0).unwrap() {
-                *tv = *xv;
-            }
-        }
+        // // TODO in_place: treat x as output and attach it to current op
+        let mut t = Tensor::from(storage_apply!(
+            &*xs[0].data(),
+            relu_ndarray,
+            |x: &CudaData<T>| todo!()
+        ));
         self.attach_to_eager_graph(xs, &mut t, Operators::ReLU(ReLU));
         t
     }
     fn backward(&self, xs: Vec<Tensor<f32>>, grad: Tensor<f32>) -> Vec<Tensor<f32>> {
-        {
-            let x = xs.get(0).unwrap();
-            // re-use grad storage
-            for (g_i, x_i) in grad.data_mut().iter_mut().zip(x.data().iter()) {
-                if *x_i <= 0.0 {
-                    *g_i = 0.0;
-                }
-            }
-        }
-        vec![grad]
+        // let x = xs.get(0).unwrap();
+        // // re-use grad storage
+        // for (g_i, x_i) in grad.data_mut().iter_mut().zip(x.data().iter()) {
+        //     if *x_i <= 0.0 {
+        //         *g_i = 0.0;
+        //     }
+        // }
+        backward_dispatch(xs, grad, relu_backward_ndarray)
     }
 }
 
@@ -201,7 +234,8 @@ impl Operator for Sigmoid {
 impl Operator for MeanSquaredError {
     fn forward<T: Primitive + 'static>(&self, xs: Vec<Tensor<T>>) -> Tensor<T>
     where
-        Array<T, Ix2>: Dot<Array<T, Ix2>, Output = Array<T, Ix2>>, Tensor<T>: Powi
+        Array<T, Ix2>: Dot<Array<T, Ix2>, Output = Array<T, Ix2>>,
+        Tensor<T>: Powi,
     {
         let pred: &Tensor<T> = &xs[0];
         let target: &Tensor<T> = &xs[1];
@@ -298,65 +332,7 @@ impl Conv2D {
         stride: usize,
         pad: usize,
     ) -> Result<ArrayD<T>, String> {
-        // single ksize for both x/y direction for now
-        if let [b, c, h, w] = im.shape()[..] {
-            let im = im.data();
-            // number of conv operations/slides on both axis
-            let new_height = (h - k_size + 2 * pad) / stride + 1;
-            let new_width = (w - k_size + 2 * pad) / stride + 1;
-            // #conv_ops X kernel_size*C, ie each conv is unfolded (channel-wise too)
-            let mut col =
-                ArrayD::<T>::zeros(IxDyn(&[b, new_height * new_width, c * k_size * k_size]));
-
-            // since reshaping (below) requires a contiguous array, we re-use the same memory location so we save allocation
-            // also, handling lateral im-filter overlaps when padding is tricky
-            let mut patch_buffer = ArrayD::<T>::zeros(IxDyn(&[b, c * k_size * k_size]));
-            let k_size = k_size as i32; // could overflow below!
-            let pad = pad as i32;
-            // go over each kernel slide (nh*nw="#convolutions") NOT over "col" pixels
-            for y in 0..new_height {
-                // NOTE we don't actually pad the input as it can be very expensive; we can recognize when patch
-                // is out of bound (due to padding, wrt im origin) and only copy the sub-slice we need
-                let patch_y = (y * stride) as i32 - pad;
-                for x in 0..new_width {
-                    // lay out patch as a column vector
-                    let patch_x = (x * stride) as i32 - pad;
-                    // how you would do it if there was no padding, select patch and flatten
-                    // let patch_idxs = s![.., .., patch_y..patch_y+k_size, patch_x..patch_x+k_size];
-                    // let patch = im.slice(patch_idxs).into_owned();
-                    // let patch = patch.into_shape((b, patch.len() / b)).unwrap();
-                    // ..in particular, we handle the tricky case ('|' im boundaries, '/'kernel boundaries)
-                    // |X../X|0/
-                    // |X../X|0/   where X-0-X-0 slice needs to be flattened in this order
-
-                    let mut counter = 0;
-                    for ch in 0..c {
-                        for i in patch_y..(patch_y + k_size) {
-                            for j in patch_x..(patch_x + k_size) {
-                                if i >= 0 && i < h as i32 && j >= 0 && j < w as i32 {
-                                    patch_buffer.slice_mut(s![.., counter]).assign(&im.slice(s![
-                                        ..,
-                                        ch,
-                                        i,
-                                        j
-                                    ]));
-                                }
-                                counter += 1;
-                            }
-                        }
-                    }
-                    // this assigns a whole row of "col" (data locality happy), indexing from patch y/x coordinates
-                    col.slice_mut(s![.., y * new_width + x, ..])
-                        .assign(&patch_buffer);
-                    patch_buffer.fill(T::zero());
-                }
-            }
-            return Ok(col);
-        }
-        Err(format!(
-            "Expected image of shape BCHW, got shape {:?}",
-            im.shape()
-        ))
+        storage_apply!(&*im.data(), |x: &ArrayD<T>| im2col_ndarray(x, k_size, stride, pad), |x: &CudaData<T>| todo!())
     }
 
     // Computes backward grads for the im2col op. It accumulates gradients on overlapping strides.
@@ -367,31 +343,7 @@ impl Conv2D {
         stride: usize,
         k_size: usize,
     ) -> Result<ArrayD<T>, String> {
-        if let [b, P, K] = col.shape()[..] {
-            let col = col.data();
-            // original image sizes
-            let c = K / (k_size * k_size);
-            let h = (h_out - 1) * stride + k_size;
-            let w = (w_out - 1) * stride + k_size;
-            let mut im = ArrayD::<T>::zeros(IxDyn(&[b, c, h, w]));
-            // go through each flattened patch, reshape it and sum contributions on overlapping patches
-            for i in 0..P {
-                // BxK*K*C
-                let row = col.slice(s![.., i, ..]);
-                let y = (i / w_out) * stride;
-                let x = (i % w_out) * stride;
-                let mut patch = im.slice_mut(s![.., .., y..y + k_size, x..x + k_size]);
-                // patch += &row; needs extra signature..
-                // we can reshape without owning view as the slice is contiguous
-                let p = &patch + &row.into_shape((b, c, k_size, k_size)).unwrap();
-                patch.assign(&p);
-            }
-            return Ok(im);
-        }
-        Err(format!(
-            "Expected tensor of shape BxH_out*W_outxK*K*C, got shape {:?}",
-            col.shape()
-        ))
+        storage_apply!(&*col.data(), |x: &ArrayD<T>| im2col_ndarray_backward(x, h_out, w_out, stride, k_size), |x: &CudaData<T>| todo!())
     }
 }
 
@@ -414,15 +366,12 @@ impl Operator for Conv2D {
         // reshape filters to prepare for matmul
         let kernel = filters.data();
         // do the actual filter broadcast here, lazily -> C_inxKxKxC_out, owned due to into_shape cont memory req >.<
-        let kernel = kernel
-            .broadcast(IxDyn(&[
-                self.in_channels,
-                self.k_size,
-                self.k_size,
-                self.out_channels,
-            ]))
-            .unwrap()
-            .into_owned();
+        let kernel = kernel.broadcast(IxDyn(&[
+            self.in_channels,
+            self.k_size,
+            self.k_size,
+            self.out_channels,
+        ]));
         let kkc = self.k_size * self.k_size * self.in_channels;
         // TODO would like to avoid this into_owned -> totensor thing, add broadcast op like reshape
         let kernel = kernel
@@ -463,17 +412,14 @@ impl Operator for Conv2D {
         // B*PxC_out @ 1xKxKxC_out
         let kkc = self.k_size * self.k_size * self.in_channels;
         // 1xKxKxC_out->CxKxKxC_out
-        let mut kernels = filters.clone();
+        let kernels = filters.clone();
         let karr = kernels.data_mut();
-        let karr = karr
-            .broadcast(IxDyn(&[
-                self.in_channels,
-                self.k_size,
-                self.k_size,
-                self.out_channels,
-            ]))
-            .unwrap()
-            .into_owned();
+        let karr = karr.broadcast(IxDyn(&[
+            self.in_channels,
+            self.k_size,
+            self.k_size,
+            self.out_channels,
+        ]));
         let mut kernels = Tensor::from(karr);
         kernels.reshape(&[kkc, self.out_channels]);
 

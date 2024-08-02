@@ -52,6 +52,7 @@ impl<T> Drop for CudaData<T> {
     }
 }
 
+#[macro_export]
 macro_rules! storage_apply {
     ($value:expr, $func_array:expr, $func_cuda:expr) => {
         match $value {
@@ -345,7 +346,7 @@ where
         // let mut t = Tensor::from(self.data().mapv(|elem| A::from(elem).unwrap()));
         let mut t = Tensor::from(storage_apply!(
             &*self.data(),
-            |x: &ArrayD<i64>| x.mapv(|elem| A::from(elem).unwrap()),
+            |x: &ArrayD<T>| x.mapv(|elem| A::from(elem).unwrap()),
             |x| todo!()
         ));
         t.requires_grad = self.requires_grad;
