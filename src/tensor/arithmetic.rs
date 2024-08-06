@@ -238,11 +238,8 @@ where
     T: Primitive,
 {
     type Output = Tensor<T>;
-    fn mul(mut self, rhs: Tensor<T>) -> Self::Output {
-        tensor_op_mut(&mut self, &rhs, |a, b| {
-            a.zip_mut_with(b, move |y, &x| *y = *y * x)
-        });
-        self
+    fn mul(self, rhs: Tensor<T>) -> Self::Output {
+        self * &rhs 
     }
 }
 
