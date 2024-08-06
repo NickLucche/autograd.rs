@@ -151,15 +151,6 @@ where
     }
 }
 
-impl<T> Sub<Tensor<T>> for Tensor<T>
-where
-    T: Primitive,
-{
-    type Output = Tensor<T>;
-    fn sub(self, rhs: Tensor<T>) -> Self::Output {
-        self - &rhs
-    }
-}
 
 impl<T> Sub<&Tensor<T>> for &Tensor<T>
 where
@@ -173,15 +164,40 @@ where
     }
 }
 
-impl<T> SubAssign<&Tensor<T>> for &Tensor<T>
+impl<T> Sub<Tensor<T>> for Tensor<T>
 where
     T: Primitive,
+{
+    type Output = Tensor<T>;
+    fn sub(self, rhs: Tensor<T>) -> Self::Output {
+        self - &rhs
+    }
+}
+
+
+// TODO not sure if needed
+// &A -= &B
+// impl<T> SubAssign<&Tensor<T>> for &mut Tensor<T>
+// where
+//     T: Primitive,
+//     ArrayD<T>: for<'a> SubAssign<&'a ArrayD<T>>,
+// {
+//     fn sub_assign(&mut self, rhs: &Tensor<T>) {
+//         let mut a = &mut *self.data_mut();
+//         let b = &*rhs.data();
+//         a -= b;
+//     }
+// }
+
+// A -= &B
+impl<T> SubAssign<&Tensor<T>> for Tensor<T>
+where
+    T: Primitive,
+    // ArrayD<T>: SubAssign<ArrayD<T>>
     ArrayD<T>: for<'a> SubAssign<&'a ArrayD<T>>,
 {
     fn sub_assign(&mut self, rhs: &Tensor<T>) {
-        let mut a = self.data_mut();
-        let b = &*rhs.data();
-        *a -= b;
+        tensor_op_mut(self, &rhs, |a, b| *a -= b);
     }
 }
 

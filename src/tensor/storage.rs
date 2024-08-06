@@ -1,7 +1,7 @@
 use crate::{storage_apply, storage_apply2};
 
 use super::tensor::{CudaData, Primitive, StorageType};
-use super::utils::storage_binary_op;
+use super::utils::{storage_binary_move_op, storage_binary_op, storage_binary_op_mut};
 use ndarray::{ArrayD, IxDyn, ScalarOperand};
 use num_traits::Signed;
 use std::ops::{self, Not};
@@ -80,33 +80,89 @@ where
 }
 
 // Subtraction
-impl<T: Primitive> Sub for &StorageType<T> {
-    type Output = StorageType<T>;
-
-    fn sub(self, other: Self) -> StorageType<T> {
-        todo!()
-    }
-}
-
-impl<T: Primitive> Sub for StorageType<T> {
-    type Output = StorageType<T>;
-
-    fn sub(self, other: StorageType<T>) -> StorageType<T> {
-        todo!()
-    }
-}
-
+// A - &B
 impl<T: Primitive> Sub<&StorageType<T>> for StorageType<T> {
     type Output = StorageType<T>;
 
     fn sub(self, other: &StorageType<T>) -> StorageType<T> {
-        todo!()
+        // respect move semantics here (let c = a - b)
+        storage_binary_move_op(self, other, |mut a, b| {
+            a = a - b;
+            StorageType::ArrayData(a)
+        })
+    }
+}
+// &A - B
+// leave unimplented for now, doesn't seem necessary
+// impl<T: Primitive> Sub<StorageType<T>> for &StorageType<T> {
+//     type Output = StorageType<T>;
+
+//     fn sub(self, rhs: StorageType<T>) -> Self::Output {
+//         storage_binary_move_op(rhs, self, |a, b| StorageType::ArrayData(a - b))
+//     }
+// }
+// A - B
+impl<T: Primitive> Sub<StorageType<T>> for StorageType<T> {
+    type Output = StorageType<T>;
+
+    fn sub(self, other: Self) -> StorageType<T> {
+        self - &other
     }
 }
 
-impl<T: Primitive> SubAssign<&StorageType<T>> for StorageType<T> {
+// &A - &B
+impl<T: Primitive> Sub<&StorageType<T>> for &StorageType<T> {
+    type Output = StorageType<T>;
+
+    fn sub(self, other: &StorageType<T>) -> Self::Output {
+        storage_binary_op(self, other, |a, b| StorageType::ArrayData(a - b))
+    }
+}
+
+
+
+// &A -= &B
+// impl<T> SubAssign<&StorageType<T>> for &mut StorageType<T>
+// where
+//     T: Primitive,
+//     ArrayD<T>: for<'a> SubAssign<&'a ArrayD<T>>,
+// {
+//     fn sub_assign(&mut self, rhs: &StorageType<T>) {
+//         match (self, rhs) {
+//             (StorageType::ArrayData(arr_a), StorageType::ArrayData(arr_b)) => *arr_a -= arr_b,
+//             (StorageType::CudaData(arr_a), StorageType::CudaData(arr_b)) => todo!(),
+//             _ => panic!("Tensors must be on same device"), // TODO return proper result
+//         }
+//         // storage_apply2!(
+//         //     self,
+//         //     other,
+//         //     |a: &mut ArrayD<T>, b: ArrayD<T>| *a -= b,
+//         //     |a: &CudaData<T>, b: &CudaData<T>| todo!()
+//         // )
+//     }
+// }
+
+
+impl<T> SubAssign<&StorageType<T>> for StorageType<T> 
+// where ArrayD<T>: SubAssign<ArrayD<T>>
+where T:Primitive, ArrayD<T>: for<'a> SubAssign<&'a ArrayD<T>>,
+
+{
     fn sub_assign(&mut self, other: &StorageType<T>) {
-        todo!()
+        storage_apply2!(
+            self,
+            other,
+            |a: &mut ArrayD<T>, b: &ArrayD<T>| *a -= b,
+            |a: &CudaData<T>, b: &CudaData<T>| todo!()
+        )
+    }
+}
+
+impl<T> SubAssign<StorageType<T>> for StorageType<T> 
+where T:Primitive, ArrayD<T>: for<'a> SubAssign<&'a ArrayD<T>>,
+{
+    fn sub_assign(&mut self, rhs: StorageType<T>) {
+        *self -= &rhs;
     }
 }
 
@@ -125,15 +181,10 @@ impl<T: Primitive> Mul<&StorageType<T>> for StorageType<T> {
     type Output = StorageType<T>;
 
     fn mul(self, other: &StorageType<T>) -> StorageType<T> {
-        // TODO factor out the function with move 
-        match (self, other) {
-            (StorageType::ArrayData(mut arr_a), StorageType::ArrayData(arr_b)) => {
-                arr_a = arr_a * arr_b;
-                StorageType::ArrayData(arr_a)
-            },
-            (StorageType::CudaData(arr_a), StorageType::CudaData(arr_b)) => todo!(),
-            _ => panic!("Tensors must be on same device"), // TODO return proper result
-        }
+        storage_binary_move_op(self, other, |mut a, b| {
+            a = a * b;
+            StorageType::ArrayData(a)
+        })
     }
 }
 

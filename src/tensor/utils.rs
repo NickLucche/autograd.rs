@@ -53,3 +53,12 @@ pub fn storage_binary_op_mut<T: Primitive>(
         _ => panic!("Tensors must be on same device"), // TODO return proper result
     }
 }
+
+
+pub fn storage_binary_move_op<T:Primitive>(a: StorageType<T>, b: &StorageType<T>, cpu_f: impl Fn(ArrayD<T>, &ArrayD<T>)->StorageType<T>)-> StorageType<T> {
+    match (a, b) {
+        (StorageType::ArrayData(mut arr_a), StorageType::ArrayData(arr_b)) => cpu_f(arr_a, arr_b),
+        (StorageType::CudaData(arr_a), StorageType::CudaData(arr_b)) => todo!(),
+        _ => panic!("Tensors must be on same device"), // TODO return proper result
+    }
+}
