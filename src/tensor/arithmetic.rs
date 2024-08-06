@@ -280,7 +280,7 @@ where
 {
     type Output = Tensor<T>;
     fn div(self, rhs: T) -> Self::Output {
-        Tensor::from(self.data().to_owned() / rhs)
+        Tensor::from(&*self.data() / rhs)
     }
 }
 
@@ -290,7 +290,7 @@ where
 {
     type Output = Tensor<T>;
     fn div(self, rhs: T) -> Self::Output {
-        Tensor::from(self.data().to_owned() / rhs)
+        Tensor::from(&*self.data() / rhs)
     }
 }
 
@@ -308,26 +308,14 @@ where
 impl Sub<Tensor<f32>> for f32 {
     type Output = Tensor<f32>;
     fn sub(self, rhs: Tensor<f32>) -> Self::Output {
-        let b = &*rhs.data();
-        if let StorageType::ArrayData(arr) = b {
-            let scalar_arr = ndarray::array![self].into_dyn();
-            Tensor::from(scalar_arr - arr)
-        } else {
-            todo!()
-        }
+        Tensor::from(self - &*rhs.data())
     }
 }
 
 impl Sub<&Tensor<f32>> for f32 {
     type Output = Tensor<f32>;
     fn sub(self, rhs: &Tensor<f32>) -> Self::Output {
-        let b = &*rhs.data();
-        if let StorageType::ArrayData(arr) = b {
-            let scalar_arr = ndarray::array![self].into_dyn();
-            Tensor::from(scalar_arr - arr)
-        } else {
-            todo!()
-        }
+        Tensor::from(self - &*rhs.data())
     }
 }
 // FIXME remove T: Float trait to implement this and properly support ints

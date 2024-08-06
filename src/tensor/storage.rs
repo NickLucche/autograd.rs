@@ -146,17 +146,6 @@ impl<T: Primitive> Mul<StorageType<T>> for StorageType<T> {
     }
 }
 
-// A * &B
-impl<T> MulAssign<T> for StorageType<T>
-where
-    T: Primitive + ScalarOperand + MulAssign{
-    fn mul_assign(&mut self, scalar: T) {
-        match self {
-            StorageType::ArrayData(arr_a) => *arr_a *= scalar,
-            _ => todo!(),
-        }        
-    }
-}
 
 // Negation
 impl<T: Primitive> Neg for StorageType<T> {
@@ -212,13 +201,16 @@ impl<T: Primitive> PartialEq<ArrayD<T>> for StorageType<T> {
     }
 }
 
-impl<T: Primitive> Div<T> for StorageType<T>
+//** Scalar operators **/
+
+impl<T> MulAssign<T> for StorageType<T>
 where
-    T: Primitive + ScalarOperand,
-{
-    type Output = StorageType<T>;
-    fn div(self, rhs: T) -> Self::Output {
-        todo!()
+    T: Primitive + ScalarOperand + MulAssign{
+    fn mul_assign(&mut self, scalar: T) {
+        match self {
+            StorageType::ArrayData(arr_a) => *arr_a *= scalar,
+            _ => todo!(),
+        }        
     }
 }
 
@@ -227,8 +219,22 @@ where
     T: Primitive + ScalarOperand,
 {
     type Output = StorageType<T>;
-    fn div(self, rhs: T) -> Self::Output {
-        todo!()
+    fn div(self, scalar: T) -> Self::Output {
+        // return new storage
+        storage_apply!(self,
+            |a: &ArrayD<T>| StorageType::ArrayData(a / scalar),
+            |a: &CudaData<T>| todo!()
+        )
+    }
+}
+
+impl<T: Primitive> Div<T> for StorageType<T>
+where
+    T: Primitive + ScalarOperand,
+{
+    type Output = StorageType<T>;
+    fn div(self, scalar: T) -> Self::Output {
+        &self / scalar
     }
 }
 
@@ -236,25 +242,37 @@ impl<T: Primitive> DivAssign<T> for StorageType<T>
 where
     T: Primitive + ScalarOperand + DivAssign,
 {
-    fn div_assign(&mut self, rhs: T) {
-        todo!()
+    fn div_assign(&mut self, scalar: T) {
+        match self {
+            StorageType::ArrayData(arr_a) => *arr_a /= scalar,
+            _ => todo!(),
+        }        
     }
 }
 
-// Scalar - Tensor
-impl Sub<StorageType<f32>> for f32 {
-    type Output = StorageType<f32>;
-    fn sub(self, rhs: StorageType<f32>) -> Self::Output {
-        todo!()
-    }
-}
+// *Scalar* - Tensor
 
 impl Sub<&StorageType<f32>> for f32 {
     type Output = StorageType<f32>;
     fn sub(self, rhs: &StorageType<f32>) -> Self::Output {
-        todo!()
+        storage_apply!(rhs,
+            |a: &ArrayD<f32>| {
+                // transform scalar into array and do sub
+                let scalar_arr = ndarray::array![self].into_dyn();
+                StorageType::ArrayData(scalar_arr - a)
+            },
+            |a: &CudaData<f32>| todo!()
+        )
     }
 }
+
+impl Sub<StorageType<f32>> for f32 {
+    type Output = StorageType<f32>;
+    fn sub(self, rhs: StorageType<f32>) -> Self::Output {
+        self - &rhs
+    }
+}
+
 
 // Scalar * A, will create a new storage
 impl<T: Primitive> Mul<T> for &StorageType<T>
