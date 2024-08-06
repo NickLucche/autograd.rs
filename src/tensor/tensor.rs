@@ -1,8 +1,8 @@
 use crate::autograd::autograd::{backward_algo, Node};
 use crate::operators::operators::shared_ptr_new;
+use ndarray::iter::{Iter, IterMut};
 use ndarray::linalg::Dot;
 use ndarray::{array, Array, ArrayD, ArrayView, ArrayViewMut, Axis, Dimension, Ix2, IxDyn};
-use ndarray::iter::{IterMut, Iter};
 use std::cell::{Ref, RefCell, RefMut};
 use std::convert::From;
 use std::ops::AddAssign;
@@ -107,8 +107,8 @@ impl<T: Primitive> StorageType<T> {
     pub fn is_empty(&self) -> bool {
         storage_apply!(
             &self,
-            |x: &ArrayD<T>| self.len()==0,
-            |x: &CudaData<T>| self.len()==0
+            |x: &ArrayD<T>| self.len() == 0,
+            |x: &CudaData<T>| self.len() == 0
         )
     }
     pub fn fill(&mut self, el: T) {
@@ -121,7 +121,9 @@ impl<T: Primitive> StorageType<T> {
     }
 
     pub fn t_clone(&self) -> ArrayD<T> {
-        storage_apply!(&self, |x: &ArrayD<T>| x.t().to_owned(), |x: &CudaData<T>| todo!())
+        storage_apply!(&self, |x: &ArrayD<T>| x.t().to_owned(), |x: &CudaData<
+            T,
+        >| todo!())
     }
 
     // ops
@@ -162,7 +164,11 @@ impl<T: Primitive> StorageType<T> {
     }
 
     pub fn mapv_inplace(&mut self, f: impl Fn(T) -> T) {
-        storage_apply!(self, |x: &mut ArrayD<T>| x.mapv_inplace(f), |x: &mut CudaData<T>| todo!())
+        storage_apply!(
+            self,
+            |x: &mut ArrayD<T>| x.mapv_inplace(f),
+            |x: &mut CudaData<T>| todo!()
+        )
     }
 
     pub fn map(&self, f: impl Fn(&T) -> T) -> ArrayD<T> {
@@ -208,9 +214,7 @@ impl<T: Primitive> StorageType<T> {
             panic!("Not Implemented for CudaData")
         }
     }
-    
 }
-
 
 #[derive(Clone)]
 pub enum Device {
@@ -246,17 +250,14 @@ impl<T: Primitive, D: Dimension> From<Array<T, D>> for Tensor<T> {
 
 impl<T: Primitive> From<StorageType<T>> for Tensor<T> {
     fn from(storage: StorageType<T>) -> Self {
-        let cpu_foo = |x: &ArrayD<T>| -> Tensor<T> {
-            Tensor {
-                graph: None,
-                data: shared_ptr_new(StorageType::ArrayData(x.to_owned())), // TODO no copy?
-                grad: shared_ptr_new(None),
-                name: "".to_string(),
-                requires_grad: true,
-            }
-        };
-        let cuda_foo = |x: &CudaData<T>| -> Tensor<T> { todo!() };
-        storage_apply!(&storage, cpu_foo, cuda_foo)
+        // here we move and take ownership of the storage
+        Tensor {
+            graph: None,
+            data: shared_ptr_new(storage),
+            grad: shared_ptr_new(None),
+            name: "".to_string(),
+            requires_grad: true,
+        }
     }
 }
 
@@ -316,6 +317,12 @@ where
     }
     pub fn grad_mut(&self) -> RefMut<Option<StorageType<f32>>> {
         self.grad.borrow_mut()
+    }
+
+    pub fn move_out_data(&self) -> StorageType<T> {
+        // hacky way to move out the value from the RefCell replacing with a dummy value; don't forget to replace it back!
+        self.data
+            .replace(StorageType::ArrayData(ArrayD::<T>::zeros(IxDyn(&[1]))))
     }
 
     fn apply(&self, cpu_f: impl Fn(&mut ArrayD<T>)) {
@@ -683,7 +690,8 @@ mod tests {
 
         let tdata = &*t.data();
         if let StorageType::ArrayData(arr) = tdata {
-            let tp: *const ArrayBase<ndarray::OwnedRepr<f64>, Dim<ndarray::IxDynImpl>> = arr as *const ArrayD<f64>;
+            let tp: *const ArrayBase<ndarray::OwnedRepr<f64>, Dim<ndarray::IxDynImpl>> =
+                arr as *const ArrayD<f64>;
             let t2data = &*t2.data();
             if let StorageType::ArrayData(arr2) = t2data {
                 let tp2 = arr2 as *const ArrayD<f64>;

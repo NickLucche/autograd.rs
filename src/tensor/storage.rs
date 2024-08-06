@@ -1,6 +1,7 @@
-use crate::storage_apply2;
+use crate::{storage_apply, storage_apply2};
 
 use super::tensor::{CudaData, Primitive, StorageType};
+use super::utils::storage_binary_op;
 use ndarray::{ArrayD, IxDyn, ScalarOperand};
 use num_traits::Signed;
 use std::ops::{self, Not};
@@ -34,7 +35,7 @@ use std::ops::{Index, IndexMut};
  */
 
 // &A + &B
-impl<T> ops::Add<&StorageType<T>> for &StorageType<T>
+impl<T: Primitive> ops::Add<&StorageType<T>> for &StorageType<T>
 where
     T: Primitive,
 {
@@ -46,7 +47,7 @@ where
 }
 
 // A + B
-impl<T> ops::Add<StorageType<T>> for StorageType<T>
+impl<T: Primitive> ops::Add<StorageType<T>> for StorageType<T>
 where
     T: Primitive,
 {
@@ -57,7 +58,7 @@ where
 }
 
 // A += &B
-impl<T> AddAssign<&StorageType<T>> for StorageType<T>
+impl<T: Primitive> AddAssign<&StorageType<T>> for StorageType<T>
 where
     T: Primitive,
     ArrayD<T>: for<'a> AddAssign<&'a ArrayD<T>>,
@@ -68,7 +69,7 @@ where
 }
 
 // A + &B, add(&B) for A
-impl<T> ops::Add<&StorageType<T>> for StorageType<T>
+impl<T: Primitive> ops::Add<&StorageType<T>> for StorageType<T>
 where
     T: Primitive,
 {
@@ -79,7 +80,7 @@ where
 }
 
 // Subtraction
-impl<T> Sub for &StorageType<T> {
+impl<T: Primitive> Sub for &StorageType<T> {
     type Output = StorageType<T>;
 
     fn sub(self, other: Self) -> StorageType<T> {
@@ -87,7 +88,7 @@ impl<T> Sub for &StorageType<T> {
     }
 }
 
-impl<T> Sub for StorageType<T> {
+impl<T: Primitive> Sub for StorageType<T> {
     type Output = StorageType<T>;
 
     fn sub(self, other: StorageType<T>) -> StorageType<T> {
@@ -95,7 +96,7 @@ impl<T> Sub for StorageType<T> {
     }
 }
 
-impl<T> Sub<&StorageType<T>> for StorageType<T> {
+impl<T: Primitive> Sub<&StorageType<T>> for StorageType<T> {
     type Output = StorageType<T>;
 
     fn sub(self, other: &StorageType<T>) -> StorageType<T> {
@@ -103,45 +104,62 @@ impl<T> Sub<&StorageType<T>> for StorageType<T> {
     }
 }
 
-impl<T> SubAssign<&StorageType<T>> for StorageType<T> {
+impl<T: Primitive> SubAssign<&StorageType<T>> for StorageType<T> {
     fn sub_assign(&mut self, other: &StorageType<T>) {
         todo!()
     }
 }
 
 // Multiplication
-impl<T> Mul for &StorageType<T> {
-    type Output = StorageType<T>;
-
-    fn mul(self, other: Self) -> StorageType<T> {
-        todo!()
-    }
-}
-
-impl<T> Mul for StorageType<T> {
-    type Output = StorageType<T>;
-
-    fn mul(self, other: StorageType<T>) -> StorageType<T> {
-        todo!()
-    }
-}
-
-impl<T> Mul<&StorageType<T>> for StorageType<T> {
+// &A * &B
+impl<T: Primitive> Mul<&StorageType<T>> for &StorageType<T> {
     type Output = StorageType<T>;
 
     fn mul(self, other: &StorageType<T>) -> StorageType<T> {
-        todo!()
+        storage_binary_op(self, other, |a, b| StorageType::ArrayData(a * b))
     }
 }
 
-impl<T> MulAssign<&StorageType<T>> for StorageType<T> {
-    fn mul_assign(&mut self, other: &StorageType<T>) {
-        todo!()
+// A * &B
+impl<T: Primitive> Mul<&StorageType<T>> for StorageType<T> {
+    type Output = StorageType<T>;
+
+    fn mul(self, other: &StorageType<T>) -> StorageType<T> {
+        // TODO factor out the function with move 
+        match (self, other) {
+            (StorageType::ArrayData(mut arr_a), StorageType::ArrayData(arr_b)) => {
+                arr_a = arr_a * arr_b;
+                StorageType::ArrayData(arr_a)
+            },
+            (StorageType::CudaData(arr_a), StorageType::CudaData(arr_b)) => todo!(),
+            _ => panic!("Tensors must be on same device"), // TODO return proper result
+        }
+    }
+}
+
+impl<T: Primitive> Mul<StorageType<T>> for StorageType<T> {
+    type Output = StorageType<T>;
+
+    fn mul(self, rhs: StorageType<T>) -> Self::Output {
+        // same as above A * &B
+        self * &rhs
+    }
+}
+
+// A * &B
+impl<T> MulAssign<T> for StorageType<T>
+where
+    T: Primitive + ScalarOperand + MulAssign{
+    fn mul_assign(&mut self, scalar: T) {
+        match self {
+            StorageType::ArrayData(arr_a) => *arr_a *= scalar,
+            _ => todo!(),
+        }        
     }
 }
 
 // Negation
-impl<T> Neg for StorageType<T> {
+impl<T: Primitive> Neg for StorageType<T> {
     type Output = StorageType<T>;
 
     fn neg(self) -> StorageType<T> {
@@ -194,7 +212,7 @@ impl<T: Primitive> PartialEq<ArrayD<T>> for StorageType<T> {
     }
 }
 
-impl<T> Div<T> for StorageType<T>
+impl<T: Primitive> Div<T> for StorageType<T>
 where
     T: Primitive + ScalarOperand,
 {
@@ -204,7 +222,7 @@ where
     }
 }
 
-impl<T> Div<T> for &StorageType<T>
+impl<T: Primitive> Div<T> for &StorageType<T>
 where
     T: Primitive + ScalarOperand,
 {
@@ -214,7 +232,7 @@ where
     }
 }
 
-impl<T> DivAssign<T> for StorageType<T>
+impl<T: Primitive> DivAssign<T> for StorageType<T>
 where
     T: Primitive + ScalarOperand + DivAssign,
 {
@@ -238,37 +256,34 @@ impl Sub<&StorageType<f32>> for f32 {
     }
 }
 
-impl<T> Mul<T> for StorageType<T>
+// Scalar * A, will create a new storage
+impl<T: Primitive> Mul<T> for &StorageType<T>
 where
     T: Primitive + ScalarOperand,
 {
     type Output = StorageType<T>;
-    fn mul(self, rhs: T) -> Self::Output {
-        todo!()
+    fn mul(self, scalar: T) -> Self::Output {
+        storage_apply!(self,
+            |a: &ArrayD<T>| StorageType::ArrayData(a * scalar),
+            |a: &CudaData<T>| todo!()
+        )
+
     }
 }
 
-impl<T> Mul<T> for &StorageType<T>
+impl<T: Primitive> Mul<T> for StorageType<T>
 where
     T: Primitive + ScalarOperand,
 {
     type Output = StorageType<T>;
-    fn mul(self, rhs: T) -> Self::Output {
-        todo!()
+    fn mul(self, scalar: T) -> Self::Output {
+        &self * scalar
     }
 }
 
-impl<T> MulAssign<T> for StorageType<T>
-where
-    T: Primitive + ScalarOperand + MulAssign,
-{
-    fn mul_assign(&mut self, rhs: T) {
-        todo!()
-    }
-}
 
 /** Indexing **/
-// impl<T> StorageType<T> {
+// impl<T: Primitive> StorageType<T> {
 //     fn compute_flat_index(&self, index: &[usize]) -> usize {
 //         // Compute a flat index from the multi-dimensional index.
 //         // This usually involves multiplying the index components by the size of the corresponding dimensions.
@@ -281,7 +296,7 @@ where
 //     }
 // }
 
-impl<T> Index<&[usize]> for StorageType<T> {
+impl<T: Primitive> Index<&[usize]> for StorageType<T> {
     type Output = T;
 
     fn index(&self, index: &[usize]) -> &Self::Output {
@@ -293,7 +308,7 @@ impl<T> Index<&[usize]> for StorageType<T> {
     }
 }
 
-impl<T> IndexMut<&[usize]> for StorageType<T> {
+impl<T: Primitive> IndexMut<&[usize]> for StorageType<T> {
     fn index_mut(&mut self, index: &[usize]) -> &mut Self::Output {
         if let StorageType::ArrayData(arr) = self {
             return arr.index_mut(index);
@@ -338,7 +353,7 @@ add_indexing!(5);
 
 /*************** CUDA ops ****************/
 // &A + &B
-impl<T> ops::Add<&CudaData<T>> for &CudaData<T>
+impl<T: Primitive> ops::Add<&CudaData<T>> for &CudaData<T>
 where
     T: Primitive,
 {
@@ -350,7 +365,7 @@ where
 }
 
 // A + B
-impl<T> ops::Add<CudaData<T>> for CudaData<T>
+impl<T: Primitive> ops::Add<CudaData<T>> for CudaData<T>
 where
     T: Primitive,
 {
@@ -361,7 +376,7 @@ where
 }
 
 // A += &B
-impl<T> AddAssign<&CudaData<T>> for CudaData<T>
+impl<T: Primitive> AddAssign<&CudaData<T>> for CudaData<T>
 where
     T: Primitive,
     ArrayD<T>: for<'a> AddAssign<&'a ArrayD<T>>,
@@ -372,7 +387,7 @@ where
 }
 
 // A + &B, add(&B) for A
-impl<T> ops::Add<&CudaData<T>> for CudaData<T>
+impl<T: Primitive> ops::Add<&CudaData<T>> for CudaData<T>
 where
     T: Primitive,
 {

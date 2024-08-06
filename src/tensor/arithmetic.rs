@@ -6,39 +6,11 @@
 */
 
 use super::tensor::{Primitive, StorageType, Tensor};
+use super::utils::{tensor_op, tensor_op_mut};
 use ndarray::{ArrayD, IxDyn, ScalarOperand};
 use num_traits::Signed;
 use std::ops::{self, Not};
 use std::ops::{AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
-
-// dispatching helper functions
-fn tensor_op<T: Primitive>(
-    lhs: &Tensor<T>,
-    rhs: &Tensor<T>,
-    cpu_f: fn(&ArrayD<T>, &ArrayD<T>) -> Tensor<T>,
-) -> Tensor<T> {
-    let storage = lhs.data();
-    let rstorage = rhs.data();
-    match (&*storage, &*rstorage) {
-        (StorageType::ArrayData(arr_a), StorageType::ArrayData(arr_b)) => cpu_f(arr_a, arr_b),
-        (StorageType::CudaData(arr_a), StorageType::CudaData(arr_b)) => todo!(),
-        _ => panic!("Tensors must be on same device"), // TODO return proper result
-    }
-}
-
-fn tensor_op_mut<T: Primitive>(
-    lhs: &mut Tensor<T>,
-    rhs: &Tensor<T>,
-    cpu_f: impl Fn(&mut ArrayD<T>, &ArrayD<T>),
-) {
-    let mut storage = lhs.data_mut();
-    let rstorage = rhs.data();
-    match (&mut *storage, &*rstorage) {
-        (StorageType::ArrayData(arr_a), StorageType::ArrayData(arr_b)) => cpu_f(arr_a, arr_b),
-        (StorageType::CudaData(arr_a), StorageType::CudaData(arr_b)) => todo!(),
-        _ => panic!("Tensors must be on same device"),
-    }
-}
 
 /**
 * Arithmetic rules ndarray
@@ -239,11 +211,25 @@ where
     T: Primitive,
 {
     type Output = Tensor<T>;
-    fn mul(mut self, rhs: &Tensor<T>) -> Self::Output {
-        tensor_op_mut(&mut self, &rhs, |a, b| {
-            a.zip_mut_with(b, move |y, &x| *y = *y * x)
-        });
+    fn mul(self, rhs: &Tensor<T>) -> Self::Output {
+        // NOTE hack, we need to own the data to perform the move op (A*&B), but the only way I found is to get the value
+        // out of the RcRefCell wrapper and then put it back in
+        let a = self.move_out_data();
+        let b = &*rhs.data.borrow();
+
+        let storage =  a * b;
+        _ = self.data.replace(storage);
         self
+        // this does not work when comparing old and new array address in test_mul, without counting the fact that we recreate 
+        // a refcell and lose the grad data 
+        // Tensor::from(storage)
+        
+         
+        // old (again) hacky way to modify the data in place without requiring a movable object, but requiring "mut self", so semantically wrong 
+        // tensor_op_mut(&mut self, &rhs, |a, b| {
+        //     a.zip_mut_with(b, move |y, &x| *y = *y * x)
+        // });
+        // self
     }
 }
 
@@ -411,16 +397,19 @@ mod tests {
 
     #[test]
     fn test_mul() {
-        let mut a = Tensor::from(array![[1., 2.], [3., 4.]]);
+        let a = Tensor::from(array![[1., 2.], [3., 4.]]);
         let b = Tensor::from(ArrayD::<f32>::ones(IxDyn(&[2, 2])) * 2.0);
-        let c = &a * &b;
+        let c = &a * &b; // new tensor altogheter
         assert!(&a * 2.0 == c);
-        let aclone = a.clone(); // same ptr to data, just shell is copied
+        let aclone: Tensor<f32> = a.clone(); // same ptr to data, just shell is copied
 
-        let adata = &*aclone.data();
+        // NOTE this still counts as borrowing a! hence it is counted by Ref
+        // let adata = &*aclone.data();
         let cdata = &*c.data();
         // ptr comparisons are a bit ugly rn :(
-        if let (StorageType::ArrayData(carr), StorageType::ArrayData(aarr)) = (cdata, adata) {
+        if let (StorageType::ArrayData(carr), StorageType::ArrayData(aarr)) = (cdata, &*aclone.data()) {
+            // let adata = &*aclone.data();
+
             // mul validity
             assert!(carr == aview2(&[[2., 4.], [6., 8.]]).into_dyn());
 
@@ -431,9 +420,10 @@ mod tests {
             assert!(a_array_addr != c_array_addr);
         }
 
-        let c = a * &b;
+        let c = a * &b; // consume a, keep storage
         let cdata = &*c.data();
 
+        let adata = &*aclone.data();
         if let (StorageType::ArrayData(carr), StorageType::ArrayData(aarr)) = (cdata, adata) {
             let new_array_addr = carr as *const ArrayD<f32>;
             let a_array_addr = aarr as *const ArrayD<f32>;
