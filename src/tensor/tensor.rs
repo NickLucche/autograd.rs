@@ -376,12 +376,11 @@ where
         self.data().ndim()
     }
     pub fn swap_axes(&self, mut ax: i32, mut bx: i32) {
-        let t = self.data_mut();
         if ax < 0 {
-            ax = t.ndim() as i32 + ax;
+            ax = self.data().ndim() as i32 + ax;
         }
         if bx < 0 {
-            bx = t.ndim() as i32 + bx;
+            bx = self.data().ndim() as i32 + bx;
         }
 
         self.apply(|x| x.swap_axes(ax as usize, bx as usize))
@@ -577,24 +576,16 @@ where
         // might want to integrate with a unified Array/View container so we keep a view here and dont
         // change every clone
 
-        // can't move with into_inner/take..
-        let d = self.data();
-        match &*d {
+        // move out storage to avoid double borrow
+        let storage = self.move_out_data();
+        match storage {
             StorageType::ArrayData(arr) => {
-                let array = self
-                    .data
-                    .replace(StorageType::ArrayData(ArrayD::<T>::zeros(IxDyn(&[1]))));
-                // NOTE will panic if the array is *NOT* contiguous
-                if let StorageType::ArrayData(arr) = array {
-                    let reshaped_array = arr.into_shape(shape).unwrap();
-                    let _ = self.data.replace(StorageType::ArrayData(reshaped_array));
-                }
-            }
+                // will panic if the array is *NOT* contiguous
+                let reshaped_array = arr.into_shape(shape).unwrap();
+                let _ = self.data.replace(StorageType::ArrayData(reshaped_array));
+            },
             StorageType::CudaData(_) => todo!(),
         }
-        // let array = self.data.replace(ArrayD::<T>::zeros(IxDyn(&[1])));
-        // let reshaped_array = array.into_shape(shape).unwrap();
-        // let _ = self.data.replace(reshaped_array);
 
         // similar to
         // let reshaped_array = unsafe {
