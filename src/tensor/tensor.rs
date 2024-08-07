@@ -1,5 +1,5 @@
 use crate::autograd::autograd::{backward_algo, Node};
-use crate::operators::operators::shared_ptr_new;
+use crate::utils::shared_ptr_new;
 use ndarray::linalg::Dot;
 use ndarray::{array, Array, ArrayD, Axis, Dimension, Ix2, IxDyn};
 use std::cell::{Ref, RefCell, RefMut};
@@ -8,15 +8,11 @@ use std::ops::AddAssign;
 use std::rc::Rc;
 
 extern crate num_traits;
-
+// TODO move tensor to mod.rs?
 use super::init::{kaiming_uniform, uniform};
-use num_traits::{cast::FromPrimitive, Num, NumCast};
-pub trait Primitive: Copy + NumCast + Num + PartialOrd<Self> + Clone + FromPrimitive {}
-impl Primitive for u8 {}
-impl Primitive for f32 {}
-impl Primitive for f64 {}
-impl Primitive for i32 {}
-impl Primitive for i64 {}
+use super::storage::StorageType;
+use super::Primitive;
+use crate::{storage_apply, storage_apply2};
 
 // trait WellBehavedArray<T, D> where T: Float+FromPrimitive, D: Dimension, Array<T, D>: Dot<Array<T, D>, Output = Array<T, D>> {}
 // trait WellBehavedArray: PartialOrd + Display {}
@@ -24,20 +20,6 @@ impl Primitive for i64 {}
 
 // TODO for view+owned, though not elegant https://play.rust-lang.org/?version=stable&mode=debug&edition=2021&gist=4095c89a23a2339a1e7afe3813c9acc3
 type SharedPtr<T> = Rc<RefCell<T>>;
-type SharedArray<T> = SharedPtr<Array<T, IxDyn>>;
-
-fn deep_copy_shared_array<T: Clone>(t: &SharedArray<T>) -> SharedArray<T> {
-    shared_ptr_new(t.borrow().to_owned())
-}
-
-fn add_shared_array_inplace<T: Primitive>(a: &mut SharedArray<T>, b: &SharedArray<T>)
-where
-    ArrayD<T>: for<'a> AddAssign<&'a ArrayD<T>>,
-{
-    let mut a_t = a.borrow_mut();
-    let b_t = &b.borrow();
-    *a_t += *&b_t;
-}
 
 #[derive(Clone)]
 // clone is now inexpensive as we're just referencing the data, not owning it
@@ -46,21 +28,33 @@ pub struct Tensor<T: Primitive> {
     pub requires_grad: bool,
     // TODO rename to graph_node
     pub graph: Option<SharedPtr<Node<T>>>,
-    pub data: SharedPtr<Array<T, IxDyn>>,
-    pub grad: SharedPtr<Option<Array<f32, IxDyn>>>,
+    pub data: SharedPtr<StorageType<T>>,
+    pub grad: SharedPtr<Option<StorageType<f32>>>,
     name: String, // for later use if we want to enforce arg order in ops
 }
 
 // TODO a .no_grad() to set all to requires_grad to false and NOT create any graph
 impl<T: Primitive, D: Dimension> From<Array<T, D>> for Tensor<T> {
     fn from(arr: Array<T, D>) -> Self {
-        let shape = arr.raw_dim().into_dyn();
         // TODO requires_grad false constructor
         Self {
             graph: None,
-            data: shared_ptr_new(arr.into_dyn()),
+            data: shared_ptr_new(StorageType::ArrayData(arr.into_dyn())),
             grad: shared_ptr_new(None),
             name: "".to_string(), // TODO switch to id?
+            requires_grad: true,
+        }
+    }
+}
+
+impl<T: Primitive> From<StorageType<T>> for Tensor<T> {
+    fn from(storage: StorageType<T>) -> Self {
+        // here we move and take ownership of the storage
+        Tensor {
+            graph: None,
+            data: shared_ptr_new(storage),
+            grad: shared_ptr_new(None),
+            name: "".to_string(),
             requires_grad: true,
         }
     }
@@ -73,7 +67,7 @@ where
     pub fn zeros(shape: &[usize]) -> Self {
         Self {
             graph: None,
-            data: shared_ptr_new(ArrayD::<T>::zeros(IxDyn(shape))),
+            data: shared_ptr_new(StorageType::ArrayData(ArrayD::<T>::zeros(IxDyn(shape)))),
             grad: shared_ptr_new(None),
             name: "".to_string(),
             requires_grad: true,
@@ -82,7 +76,7 @@ where
     pub fn ones(shape: &[usize]) -> Self {
         Self {
             graph: None,
-            data: shared_ptr_new(ArrayD::<T>::ones(IxDyn(shape))),
+            data: shared_ptr_new(StorageType::ArrayData(ArrayD::<T>::ones(IxDyn(shape)))),
             grad: shared_ptr_new(None),
             name: "".to_string(),
             requires_grad: true,
@@ -110,24 +104,39 @@ where
         }
     }
 
-    pub fn data(&self) -> Ref<ArrayD<T>> {
+    pub fn data(&self) -> Ref<StorageType<T>> {
         self.data.borrow()
     }
-    pub fn data_mut(&self) -> RefMut<ArrayD<T>> {
+    pub fn data_mut(&self) -> RefMut<StorageType<T>> {
         self.data.borrow_mut()
     }
 
-    pub fn grad(&self) -> Ref<Option<ArrayD<f32>>> {
+    pub fn grad(&self) -> Ref<Option<StorageType<f32>>> {
         self.grad.borrow()
     }
-    pub fn grad_mut(&self) -> RefMut<Option<ArrayD<f32>>> {
+    pub fn grad_mut(&self) -> RefMut<Option<StorageType<f32>>> {
         self.grad.borrow_mut()
+    }
+
+    pub fn move_out_data(&self) -> StorageType<T> {
+        // hacky way to move out the value from the RefCell replacing with a dummy value; don't forget to replace it back!
+        self.data
+            .replace(StorageType::ArrayData(ArrayD::<T>::zeros(IxDyn(&[1]))))
+    }
+
+    fn apply(&self, cpu_f: impl Fn(&mut ArrayD<T>)) {
+        let mut storage = self.data_mut();
+        match &mut *storage {
+            StorageType::ArrayData(arr) => cpu_f(arr),
+            _ => panic!("Tensors must be on same device"), // TODO return proper result
+        }
     }
 
     pub fn zero_grad(&mut self) {
         // need to get this first or I get a simultaneous borrow and mutation of an object error..
-        let dim = self.data().raw_dim();
-        *self.grad.borrow_mut() = Some(ArrayD::zeros(dim));
+        // let dim = self.data().raw_dim();
+        let d = self.data();
+        *self.grad.borrow_mut() = Some(StorageType::ArrayData(ArrayD::zeros(d.shape())));
     }
 
     pub fn accumulate_grad<A: Primitive>(&mut self, b: &Tensor<A>) {
@@ -159,20 +168,21 @@ where
         self
     }
     pub fn t_clone(&self) -> Self {
-        Tensor::from(self.data().t().to_owned())
+        // TODO too many copies
+        Tensor::from(self.data().t_clone())
     }
     pub fn ndim(&self) -> usize {
         self.data().ndim()
     }
     pub fn swap_axes(&self, mut ax: i32, mut bx: i32) {
-        let mut t = self.data_mut();
         if ax < 0 {
-            ax = t.ndim() as i32 + ax;
+            ax = self.data().ndim() as i32 + ax;
         }
         if bx < 0 {
-            bx = t.ndim() as i32 + bx;
+            bx = self.data().ndim() as i32 + bx;
         }
-        t.swap_axes(ax as usize, bx as usize);
+
+        self.apply(|x| x.swap_axes(ax as usize, bx as usize))
     }
 
     pub fn sum(&self) -> T {
@@ -181,7 +191,12 @@ where
 
     pub fn as_type<A: Primitive>(&self) -> Tensor<A> {
         // TODO in-place with cast if possible? https://github.com/rust-ndarray/ndarray/issues/493
-        let mut t = Tensor::from(self.data().mapv(|elem| A::from(elem).unwrap()));
+        // let mut t = Tensor::from(self.data().mapv(|elem| A::from(elem).unwrap()));
+        let mut t = Tensor::from(storage_apply!(
+            &*self.data(),
+            |x: &ArrayD<T>| x.mapv(|elem| A::from(elem).unwrap()),
+            |x| todo!()
+        ));
         t.requires_grad = self.requires_grad;
         t
     }
@@ -190,7 +205,7 @@ where
         self.data_mut().fill(x)
     }
     pub fn is_contiguous(&self) -> bool {
-        self.data().is_standard_layout()
+        self.data().is_contiguous()
     }
 }
 
@@ -204,19 +219,32 @@ pub trait Powi {
 // fast exp from Float trait for floats
 impl Powi for Tensor<f32> {
     fn powi(&self, exp: i32) -> Self {
-        Tensor::from(self.data().mapv(|a| a.powi(exp)))
+        // NOTE op implementation responsability is a bit of a mess, as I can bypass StorageType;
+        // thing is I want a specialized impl of powi for cuda,
+        // not a general for loop done with mapv, even if at device level
+        // Tensor::from(self.data().mapv(|a| a.powi(exp)))
+        Tensor::from(storage_apply!(
+            &*self.data(),
+            |x: &ArrayD<f32>| x.mapv(|a| a.powi(exp)),
+            |x| todo!()
+        ))
     }
     fn powi_inplace(self, exp: i32) -> Self {
-        self.data_mut().mapv_inplace(|a| a.powi(exp));
+        self.apply(|x| x.mapv_inplace(|a| a.powi(exp)));
         self
     }
 }
 impl Powi for Tensor<f64> {
     fn powi(&self, exp: i32) -> Self {
-        Tensor::from(self.data().mapv(|a| a.powi(exp)))
+        // Tensor::from(self.data().mapv(|a| a.powi(exp)))
+        Tensor::from(storage_apply!(
+            &*self.data(),
+            |x: &ArrayD<f64>| x.mapv(|a| a.powi(exp)),
+            |x| todo!()
+        ))
     }
     fn powi_inplace(self, exp: i32) -> Self {
-        self.data_mut().mapv_inplace(|a| a.powi(exp));
+        self.apply(|x| x.mapv_inplace(|a| a.powi(exp)));
         self
     }
 }
@@ -224,29 +252,43 @@ impl Powi for Tensor<f64> {
 // "default" T::pow implementations for other primitives
 impl Powi for Tensor<u8> {
     fn powi(&self, exp: i32) -> Self {
-        Tensor::from(self.data().mapv(|a| u8::pow(a, exp as u32)))
+        // Tensor::from(self.data().mapv(|a| u8::pow(a, exp as u32)))
+        Tensor::from(storage_apply!(
+            &*self.data(),
+            |x: &ArrayD<u8>| x.mapv(|a| u8::pow(a, exp as u32)),
+            |x| todo!()
+        ))
     }
     fn powi_inplace(self, exp: i32) -> Self {
-        self.data_mut().mapv_inplace(|a| u8::pow(a, exp as u32));
+        // self.data_mut().mapv_inplace(|a| u8::pow(a, exp as u32));
+        self.apply(|x| x.mapv_inplace(|a| u8::pow(a, exp as u32)));
         self
     }
 }
 
 impl Powi for Tensor<i32> {
     fn powi(&self, exp: i32) -> Self {
-        Tensor::from(self.data().mapv(|a| i32::pow(a, exp as u32)))
+        Tensor::from(storage_apply!(
+            &*self.data(),
+            |x: &ArrayD<i32>| x.mapv(|a| i32::pow(a, exp as u32)),
+            |x| todo!()
+        ))
     }
     fn powi_inplace(self, exp: i32) -> Self {
-        self.data_mut().mapv_inplace(|a| i32::pow(a, exp as u32));
+        self.apply(|x| x.mapv_inplace(|a| i32::pow(a, exp as u32)));
         self
     }
 }
 impl Powi for Tensor<i64> {
     fn powi(&self, exp: i32) -> Self {
-        Tensor::from(self.data().mapv(|a| i64::pow(a, exp as u32)))
+        Tensor::from(storage_apply!(
+            &*self.data(),
+            |x: &ArrayD<i64>| x.mapv(|a| i64::pow(a, exp as u32)),
+            |x| todo!()
+        ))
     }
     fn powi_inplace(self, exp: i32) -> Self {
-        self.data_mut().mapv_inplace(|a| i64::pow(a, exp as u32));
+        self.apply(|x| x.mapv_inplace(|a| i64::pow(a, exp as u32)));
         self
     }
 }
@@ -262,12 +304,19 @@ where
             panic!("Ndarray only supports 1d/2d matmul!");
         }
         // no clone version, operating on views; needs let binding to create a longer lived value..
-        let a_ref = self.data();
-        let a = a_ref.view().into_dimensionality::<Ix2>().unwrap();
-        let b_ref = other.data();
-        let b = b_ref.view().into_dimensionality::<Ix2>().unwrap();
-        let res = a.dot(&b);
-        Tensor::from(res)
+        let cpu_dot = |x: &ArrayD<T>, y: &ArrayD<T>| -> Tensor<T> {
+            let a = x.view().into_dimensionality::<Ix2>().unwrap();
+            let b = y.view().into_dimensionality::<Ix2>().unwrap();
+            let res = a.dot(&b);
+            Tensor::from(res)
+        };
+        // let a_ref = self.data();
+        // let a = a_ref.view().into_dimensionality::<Ix2>().unwrap();
+        // let b_ref = other.data();
+        // let b = b_ref.view().into_dimensionality::<Ix2>().unwrap();
+        // let res = a.dot(&b);
+        // Tensor::from(res)
+        storage_apply2!(&*self.data(), &*other.data(), cpu_dot, |x, y| todo!())
     }
 }
 
@@ -313,7 +362,7 @@ where
     T: Primitive,
 {
     pub fn shape(&self) -> Vec<usize> {
-        self.data().shape().to_owned()
+        self.data().shape()
     }
     pub fn shapei(&self, i: usize) -> usize {
         self.shape()[i]
@@ -326,11 +375,17 @@ where
         // might want to integrate with a unified Array/View container so we keep a view here and dont
         // change every clone
 
-        // can't move with into_inner/take..
-        let array = self.data.replace(ArrayD::<T>::zeros(IxDyn(&[1])));
-        // NOTE will panic if the array is *NOT* contiguous
-        let reshaped_array = array.into_shape(shape).unwrap();
-        let _ = self.data.replace(reshaped_array);
+        // move out storage to avoid double borrow
+        let storage = self.move_out_data();
+        match storage {
+            StorageType::ArrayData(arr) => {
+                // will panic if the array is *NOT* contiguous
+                let reshaped_array = arr.into_shape(shape).unwrap();
+                let _ = self.data.replace(StorageType::ArrayData(reshaped_array));
+            }
+            StorageType::CudaData(_) => todo!(),
+        }
+
         // similar to
         // let reshaped_array = unsafe {
         //  Array::from_shape_vec_unchecked(shape, data_ptr)
@@ -373,8 +428,8 @@ where
     pub fn mean(&self, axis: Option<usize>) -> Tensor<T> {
         // will panic on empty tensors, at least it's consistent with .sum
         match axis {
-            Some(ax) => Tensor::from(self.data().mean_axis(Axis(ax)).unwrap()),
-            None => Tensor::from(array![self.data().mean().unwrap()])
+            Some(ax) => Tensor::from(self.data().mean_axis(Axis(ax))),
+            None => Tensor::from(array![self.data().mean()]),
         }
     }
 }
@@ -424,11 +479,16 @@ mod tests {
         assert_ne!(ptr::addr_of!(t), ptr::addr_of!(t2));
 
         let tdata = &*t.data();
-        let tp = tdata as *const ArrayD<f64>;
-        let t2data = &*t2.data();
-        let tp2 = t2data as *const ArrayD<f64>;
-        assert!(tp == tp2);
-        assert_eq!(*t.data(), *t2.data());
+        if let StorageType::ArrayData(arr) = tdata {
+            let tp: *const ArrayBase<ndarray::OwnedRepr<f64>, Dim<ndarray::IxDynImpl>> =
+                arr as *const ArrayD<f64>;
+            let t2data = &*t2.data();
+            if let StorageType::ArrayData(arr2) = t2data {
+                let tp2 = arr2 as *const ArrayD<f64>;
+                assert!(tp == tp2);
+            }
+            assert_eq!(*t.data(), *t2.data());
+        }
     }
     #[test]
     fn test_reshape() {

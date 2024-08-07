@@ -7,7 +7,6 @@ use ndarray::prelude::*;
 use tensor::tensor::Tensor;
 use crate::nn::layers::{Layer, Linear, MeanSquaredError, ReLU, Sigmoid};
 use crate::nn::model::NN;
-use crate::operators::operators::shared_ptr_new;
 
 fn main() {
     struct MyModel {layer1: Linear, sig: Sigmoid, layer2: Linear }

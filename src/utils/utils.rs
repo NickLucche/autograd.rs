@@ -3,7 +3,8 @@ pub mod export {
     use crate::autograd::autograd::Node;
     use crate::nn::model::NN;
     use crate::operators::operators::Operators;
-    use crate::tensor::tensor::{Powi, Primitive, Tensor};
+    use crate::tensor::Primitive;
+    use crate::tensor::tensor::{Powi, Tensor};
 
     const TORCH_IMPORT_TEMPLATE: &str = "import torch\nimport torch.nn as nn\nimport torch.nn.functional as F\n\n";
 

@@ -93,7 +93,7 @@ fn main() {
     }
     let linear_layer = &model.parameters()[..];
     if let [w, bias] = linear_layer {
-        let v = &w.data().clone().into_raw_vec()[..];
+        let v = &w.data().into_raw_vec()[..];
         if let [b, c, d] = v {
             let a_bias = bias.data()[[0, 0]];
             println!("Result: y = {a_bias} + {b} x + {c} x^2 + {d} x^3");
