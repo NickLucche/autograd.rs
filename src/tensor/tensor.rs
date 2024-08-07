@@ -10,8 +10,8 @@ use std::rc::Rc;
 extern crate num_traits;
 // TODO move tensor to mod.rs?
 use super::init::{kaiming_uniform, uniform};
-use super::Primitive;
 use super::storage::StorageType;
+use super::Primitive;
 use crate::{storage_apply, storage_apply2};
 
 // trait WellBehavedArray<T, D> where T: Float+FromPrimitive, D: Dimension, Array<T, D>: Dot<Array<T, D>, Output = Array<T, D>> {}
@@ -20,8 +20,6 @@ use crate::{storage_apply, storage_apply2};
 
 // TODO for view+owned, though not elegant https://play.rust-lang.org/?version=stable&mode=debug&edition=2021&gist=4095c89a23a2339a1e7afe3813c9acc3
 type SharedPtr<T> = Rc<RefCell<T>>;
-
-
 
 #[derive(Clone)]
 // clone is now inexpensive as we're just referencing the data, not owning it
@@ -384,7 +382,7 @@ where
                 // will panic if the array is *NOT* contiguous
                 let reshaped_array = arr.into_shape(shape).unwrap();
                 let _ = self.data.replace(StorageType::ArrayData(reshaped_array));
-            },
+            }
             StorageType::CudaData(_) => todo!(),
         }
 

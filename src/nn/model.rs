@@ -1,5 +1,6 @@
 use num_traits::{Float, FromPrimitive};
-use crate::tensor::tensor::{Powi, Primitive, Tensor};
+use crate::tensor::Primitive;
+use crate::tensor::tensor::{Powi, Tensor};
 use super::layers::Layer;
 
 // you have to define the forward on your own

@@ -1,6 +1,13 @@
+/**
+ * Layers are just high-level abstractions for operators: you can have layers with multiple operators (ie transformerblock)
+ * hence they really represent a subgraph of the whole network computation graph.
+ * By default the forward of the layer is just a sequential application of the operators in the subgraph, but
+ * it can be easily overriden to implement more complex logic.
+*/
 use crate::operators;
 use crate::tensor::init::calculate_fan_in_and_fan_out;
-use crate::tensor::tensor::{Powi, Primitive};
+use crate::tensor::Primitive;
+use crate::tensor::tensor::Powi;
 use crate::{
     operators::operators::{Operator, Operators},
     tensor::tensor::Tensor,
