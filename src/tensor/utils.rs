@@ -1,5 +1,16 @@
-use super::tensor::{Primitive, StorageType, Tensor};
+use super::Primitive;
+use super::tensor::Tensor;
+use super::storage::StorageType;
+use crate::utils::SharedPtr;
 use ndarray::{ArrayD, IxDyn, ScalarOperand};
+use crate::utils::shared_ptr_new;
+use ndarray::Array;
+
+pub type SharedArray<T> = SharedPtr<Array<T, IxDyn>>;
+
+fn deep_copy_shared_array<T: Clone>(t: &SharedArray<T>) -> SharedArray<T> {
+    shared_ptr_new(t.borrow().to_owned())
+}
 
 // helper functions for dispatching based on StorageType
 pub fn tensor_op<T: Primitive>(

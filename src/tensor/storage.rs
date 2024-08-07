@@ -1,467 +1,178 @@
-use crate::{storage_apply, storage_apply2};
+use super::Primitive;
+use ndarray::{Array, ArrayD, Axis, IxDyn, ArrayView, ArrayViewMut};
+use ndarray::iter::{Iter, IterMut};
 
-use super::tensor::{CudaData, Primitive, StorageType};
-use super::utils::{storage_binary_move_op, storage_binary_op, storage_binary_op_mut};
-use ndarray::{ArrayD, IxDyn, ScalarOperand};
-use num_traits::Signed;
-use std::ops::{self, Not};
-use std::ops::{AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
-use std::ops::{Index, IndexMut};
+#[derive(Clone, Debug)]
+pub struct CudaData<T> {
+    pub ptr: *mut T,
+}
 
-// Tensor + Tensor => StorageType + StorageType  => Array + Array
-//                                              \=> CudaData + CudaData
-
-/**
-* Arithmetic rules ndarray
-*
-   &A @ &A which produces a new Array
-   B @ A which consumes B, updates it with the result, and returns it
-   B @ &A which consumes B, updates it with the result, and returns it
-   C @= &A which performs an arithmetic operation in place
-
-    use ndarray::{array, ArrayView1};
-
-    let owned1 = array![1, 2];
-    let owned2 = array![3, 4];
-    let view1 = ArrayView1::from(&[5, 6]);
-    let view2 = ArrayView1::from(&[7, 8]);
-    let mut mutable = array![9, 10];
-
-    let sum1 = &view1 + &view2;   // Allocates a new array. Note the explicit `&`.
-    // let sum2 = view1 + &view2; // This doesn't work because `view1` is not an owned array.
-    let sum3 = owned1 + view1;    // Consumes `owned1` (moves it, need to re-assign it), updates it, and returns it.
-    let sum4 = owned2 + &view2;   // Consumes `owned2`, updates it, and returns it.
-    mutable += &view2;            // Updates `mutable` in-place.
- */
-
-// &A + &B
-impl<T: Primitive> ops::Add<&StorageType<T>> for &StorageType<T>
-where
-    T: Primitive,
-{
-    type Output = StorageType<T>;
-
-    fn add(self, rhs: &StorageType<T>) -> Self::Output {
-        todo!()
+impl<T> Drop for CudaData<T> {
+    fn drop(&mut self) {
+        // deallocate_cuda_memory(self.ptr);  // Replace with your actual deallocation function
     }
 }
 
-// A + B
-impl<T: Primitive> ops::Add<StorageType<T>> for StorageType<T>
-where
-    T: Primitive,
-{
-    type Output = StorageType<T>;
-    fn add(mut self, rhs: StorageType<T>) -> StorageType<T> {
-        todo!()
-    }
-}
-
-// A += &B
-impl<T: Primitive> AddAssign<&StorageType<T>> for StorageType<T>
-where
-    T: Primitive,
-    ArrayD<T>: for<'a> AddAssign<&'a ArrayD<T>>,
-{
-    fn add_assign(&mut self, rhs: &StorageType<T>) {
-        todo!()
-    }
-}
-
-// A + &B, add(&B) for A
-impl<T: Primitive> ops::Add<&StorageType<T>> for StorageType<T>
-where
-    T: Primitive,
-{
-    type Output = StorageType<T>;
-    fn add(mut self, rhs: &StorageType<T>) -> Self::Output {
-        todo!()
-    }
-}
-
-// Subtraction
-// A - &B
-impl<T: Primitive> Sub<&StorageType<T>> for StorageType<T> {
-    type Output = StorageType<T>;
-
-    fn sub(self, other: &StorageType<T>) -> StorageType<T> {
-        // respect move semantics here (let c = a - b)
-        storage_binary_move_op(self, other, |mut a, b| {
-            a = a - b;
-            StorageType::ArrayData(a)
-        })
-    }
-}
-// &A - B
-// leave unimplented for now, doesn't seem necessary
-// impl<T: Primitive> Sub<StorageType<T>> for &StorageType<T> {
-//     type Output = StorageType<T>;
-
-//     fn sub(self, rhs: StorageType<T>) -> Self::Output {
-//         storage_binary_move_op(rhs, self, |a, b| StorageType::ArrayData(a - b))
-//     }
-// }
-// A - B
-impl<T: Primitive> Sub<StorageType<T>> for StorageType<T> {
-    type Output = StorageType<T>;
-
-    fn sub(self, other: Self) -> StorageType<T> {
-        self - &other
-    }
-}
-
-// &A - &B
-impl<T: Primitive> Sub<&StorageType<T>> for &StorageType<T> {
-    type Output = StorageType<T>;
-
-    fn sub(self, other: &StorageType<T>) -> Self::Output {
-        storage_binary_op(self, other, |a, b| StorageType::ArrayData(a - b))
-    }
-}
-
-
-
-// &A -= &B
-// impl<T> SubAssign<&StorageType<T>> for &mut StorageType<T>
-// where
-//     T: Primitive,
-//     ArrayD<T>: for<'a> SubAssign<&'a ArrayD<T>>,
-// {
-//     fn sub_assign(&mut self, rhs: &StorageType<T>) {
-//         match (self, rhs) {
-//             (StorageType::ArrayData(arr_a), StorageType::ArrayData(arr_b)) => *arr_a -= arr_b,
-//             (StorageType::CudaData(arr_a), StorageType::CudaData(arr_b)) => todo!(),
-//             _ => panic!("Tensors must be on same device"), // TODO return proper result
-//         }
-//         // storage_apply2!(
-//         //     self,
-//         //     other,
-//         //     |a: &mut ArrayD<T>, b: ArrayD<T>| *a -= b,
-//         //     |a: &CudaData<T>, b: &CudaData<T>| todo!()
-//         // )
-//     }
-// }
-
-
-impl<T> SubAssign<&StorageType<T>> for StorageType<T> 
-// where ArrayD<T>: SubAssign<ArrayD<T>>
-where T:Primitive, ArrayD<T>: for<'a> SubAssign<&'a ArrayD<T>>,
-
-{
-    fn sub_assign(&mut self, other: &StorageType<T>) {
-        storage_apply2!(
-            self,
-            other,
-            |a: &mut ArrayD<T>, b: &ArrayD<T>| *a -= b,
-            |a: &CudaData<T>, b: &CudaData<T>| todo!()
-        )
-    }
-}
-
-impl<T> SubAssign<StorageType<T>> for StorageType<T> 
-where T:Primitive, ArrayD<T>: for<'a> SubAssign<&'a ArrayD<T>>,
-{
-    fn sub_assign(&mut self, rhs: StorageType<T>) {
-        *self -= &rhs;
-    }
-}
-
-// Multiplication
-// &A * &B
-impl<T: Primitive> Mul<&StorageType<T>> for &StorageType<T> {
-    type Output = StorageType<T>;
-
-    fn mul(self, other: &StorageType<T>) -> StorageType<T> {
-        storage_binary_op(self, other, |a, b| StorageType::ArrayData(a * b))
-    }
-}
-
-// A * &B
-impl<T: Primitive> Mul<&StorageType<T>> for StorageType<T> {
-    type Output = StorageType<T>;
-
-    fn mul(self, other: &StorageType<T>) -> StorageType<T> {
-        storage_binary_move_op(self, other, |mut a, b| {
-            a = a * b;
-            StorageType::ArrayData(a)
-        })
-    }
-}
-
-impl<T: Primitive> Mul<StorageType<T>> for StorageType<T> {
-    type Output = StorageType<T>;
-
-    fn mul(self, rhs: StorageType<T>) -> Self::Output {
-        // same as above A * &B
-        self * &rhs
-    }
-}
-
-
-// Negation
-impl<T: Primitive> Neg for StorageType<T> {
-    type Output = StorageType<T>;
-
-    fn neg(self) -> StorageType<T> {
-        todo!()
-    }
-}
-
-// Equality comparison
-impl<T: Primitive> PartialEq<StorageType<T>> for StorageType<T> {
-    fn eq(&self, other: &StorageType<T>) -> bool {
-        storage_apply2!(
-            self,
-            other,
-            |a: &ArrayD<T>, b: &ArrayD<T>| a == b,
-            |a: &CudaData<T>, b: &CudaData<T>| todo!()
-        )
-    }
-    fn ne(&self, other: &StorageType<T>) -> bool {
-        storage_apply2!(
-            self,
-            other,
-            |a: &ArrayD<T>, b: &ArrayD<T>| a != b,
-            |a: &CudaData<T>, b: &CudaData<T>| todo!()
-        )
-    }
-}
-impl<T: Primitive> PartialEq<ArrayD<T>> for &StorageType<T> {
-    fn eq(&self, other: &ArrayD<T>) -> bool {
-        if let StorageType::ArrayData(arr) = &self {
-            return arr == other;
-        } else {
-            todo!()
-        }
-    }
-    fn ne(&self, other: &ArrayD<T>) -> bool {
-        if let StorageType::ArrayData(arr) = &self {
-            return arr != other;
-        } else {
-            todo!()
-        }
-    }
-}
-
-impl<T: Primitive> PartialEq<ArrayD<T>> for StorageType<T> {
-    fn eq(&self, other: &ArrayD<T>) -> bool {
-        return &self == other;
-    }
-    fn ne(&self, other: &ArrayD<T>) -> bool {
-        return &self != other;
-    }
-}
-
-//** Scalar operators **/
-
-impl<T> MulAssign<T> for StorageType<T>
-where
-    T: Primitive + ScalarOperand + MulAssign{
-    fn mul_assign(&mut self, scalar: T) {
-        match self {
-            StorageType::ArrayData(arr_a) => *arr_a *= scalar,
-            _ => todo!(),
-        }        
-    }
-}
-
-impl<T: Primitive> Div<T> for &StorageType<T>
-where
-    T: Primitive + ScalarOperand,
-{
-    type Output = StorageType<T>;
-    fn div(self, scalar: T) -> Self::Output {
-        // return new storage
-        storage_apply!(self,
-            |a: &ArrayD<T>| StorageType::ArrayData(a / scalar),
-            |a: &CudaData<T>| todo!()
-        )
-    }
-}
-
-impl<T: Primitive> Div<T> for StorageType<T>
-where
-    T: Primitive + ScalarOperand,
-{
-    type Output = StorageType<T>;
-    fn div(self, scalar: T) -> Self::Output {
-        &self / scalar
-    }
-}
-
-impl<T: Primitive> DivAssign<T> for StorageType<T>
-where
-    T: Primitive + ScalarOperand + DivAssign,
-{
-    fn div_assign(&mut self, scalar: T) {
-        match self {
-            StorageType::ArrayData(arr_a) => *arr_a /= scalar,
-            _ => todo!(),
-        }        
-    }
-}
-
-// *Scalar* - Tensor
-
-impl Sub<&StorageType<f32>> for f32 {
-    type Output = StorageType<f32>;
-    fn sub(self, rhs: &StorageType<f32>) -> Self::Output {
-        storage_apply!(rhs,
-            |a: &ArrayD<f32>| {
-                // transform scalar into array and do sub
-                let scalar_arr = ndarray::array![self].into_dyn();
-                StorageType::ArrayData(scalar_arr - a)
-            },
-            |a: &CudaData<f32>| todo!()
-        )
-    }
-}
-
-impl Sub<StorageType<f32>> for f32 {
-    type Output = StorageType<f32>;
-    fn sub(self, rhs: StorageType<f32>) -> Self::Output {
-        self - &rhs
-    }
-}
-
-
-// Scalar * A, will create a new storage
-impl<T: Primitive> Mul<T> for &StorageType<T>
-where
-    T: Primitive + ScalarOperand,
-{
-    type Output = StorageType<T>;
-    fn mul(self, scalar: T) -> Self::Output {
-        storage_apply!(self,
-            |a: &ArrayD<T>| StorageType::ArrayData(a * scalar),
-            |a: &CudaData<T>| todo!()
-        )
-
-    }
-}
-
-impl<T: Primitive> Mul<T> for StorageType<T>
-where
-    T: Primitive + ScalarOperand,
-{
-    type Output = StorageType<T>;
-    fn mul(self, scalar: T) -> Self::Output {
-        &self * scalar
-    }
-}
-
-
-/** Indexing **/
-// impl<T: Primitive> StorageType<T> {
-//     fn compute_flat_index(&self, index: &[usize]) -> usize {
-//         // Compute a flat index from the multi-dimensional index.
-//         // This usually involves multiplying the index components by the size of the corresponding dimensions.
-//         // Here, we assume row-major order for simplicity.
-//         let mut flat_index = 0;
-//         for (i, &dim_size) in self.dims.iter().enumerate() {
-//             flat_index = flat_index * dim_size + index[i];
-//         }
-//         flat_index
-//     }
-// }
-
-impl<T: Primitive> Index<&[usize]> for StorageType<T> {
-    type Output = T;
-
-    fn index(&self, index: &[usize]) -> &Self::Output {
-        if let StorageType::ArrayData(arr) = &self {
-            return &arr[index];
-        } else {
-            todo!()
-        }
-    }
-}
-
-impl<T: Primitive> IndexMut<&[usize]> for StorageType<T> {
-    fn index_mut(&mut self, index: &[usize]) -> &mut Self::Output {
-        if let StorageType::ArrayData(arr) = self {
-            return arr.index_mut(index);
-        } else {
-            todo!()
-        }
-    }
-}
-
-// index with fixed-size arrays
-macro_rules! add_indexing {
-    ($dims:expr) => {
-        impl<T: Primitive> Index<[usize; $dims]> for StorageType<T> {
-            type Output = T;
-
-            fn index(&self, index: [usize; $dims]) -> &Self::Output {
-                if let StorageType::ArrayData(arr) = &self {
-                    return &arr[index];
-                } else {
-                    todo!()
-                }
-            }
-        }
-
-        impl<T: Primitive> IndexMut<[usize; $dims]> for StorageType<T> {
-            fn index_mut(&mut self, index: [usize; $dims]) -> &mut Self::Output {
-                if let StorageType::ArrayData(arr) = self {
-                    return arr.index_mut(index);
-                } else {
-                    todo!()
-                }
-            }
+#[macro_export]
+macro_rules! storage_apply {
+    ($value:expr, $func_array:expr, $func_cuda:expr) => {
+        match $value {
+            StorageType::ArrayData(arr) => $func_array(arr),
+            StorageType::CudaData(arr) => $func_cuda(arr),
         }
     };
 }
 
-add_indexing!(1);
-add_indexing!(2);
-add_indexing!(3);
-add_indexing!(4);
-add_indexing!(5);
-
-/*************** CUDA ops ****************/
-// &A + &B
-impl<T: Primitive> ops::Add<&CudaData<T>> for &CudaData<T>
-where
-    T: Primitive,
-{
-    type Output = CudaData<T>;
-
-    fn add(self, rhs: &CudaData<T>) -> Self::Output {
-        todo!()
-    }
+#[macro_export]
+macro_rules! storage_apply2 {
+    ($value1:expr, $value2:expr, $func_array:expr, $func_cuda:expr) => {
+        match ($value1, $value2) {
+            (StorageType::ArrayData(arr_a), StorageType::ArrayData(arr_b)) => {
+                $func_array(arr_a, arr_b)
+            }
+            (StorageType::CudaData(cuda_a), StorageType::CudaData(cuda_b)) => {
+                $func_cuda(cuda_a, cuda_b)
+            }
+            _ => panic!("Tensors must be on same device"),
+        }
+    };
+}
+// TODO move into own file
+#[derive(Clone, Debug)]
+pub enum StorageType<T> {
+    ArrayData(Array<T, IxDyn>), // CPU
+    CudaData(CudaData<T>),      // CUDA
 }
 
-// A + B
-impl<T: Primitive> ops::Add<CudaData<T>> for CudaData<T>
-where
-    T: Primitive,
-{
-    type Output = CudaData<T>;
-    fn add(mut self, rhs: CudaData<T>) -> CudaData<T> {
-        todo!()
+impl<T: Primitive> StorageType<T> {
+    pub fn ndim(&self) -> usize {
+        storage_apply!(&self, |x: &ArrayD<T>| x.ndim(), |x: &CudaData<T>| todo!())
     }
-}
-
-// A += &B
-impl<T: Primitive> AddAssign<&CudaData<T>> for CudaData<T>
-where
-    T: Primitive,
-    ArrayD<T>: for<'a> AddAssign<&'a ArrayD<T>>,
-{
-    fn add_assign(&mut self, rhs: &CudaData<T>) {
-        todo!()
+    pub fn shape(&self) -> Vec<usize> {
+        storage_apply!(&self, |x: &ArrayD<T>| x.shape().to_vec(), |x: &CudaData<
+            T,
+        >| todo!())
     }
-}
+    pub fn raw_dim(&self) -> Vec<usize> {
+        // on raw_dim/shape difference https://docs.rs/ndarray/latest/ndarray/struct.ArrayBase.html#method.shape
+        // all our arrays have dyn shape anyway
+        self.shape()
+    }
+    pub fn is_contiguous(&self) -> bool {
+        storage_apply!(
+            &self,
+            |x: &ArrayD<T>| x.is_standard_layout(),
+            |x: &CudaData<T>| true
+        )
+    }
+    pub fn is_empty(&self) -> bool {
+        storage_apply!(
+            &self,
+            |x: &ArrayD<T>| self.len() == 0,
+            |x: &CudaData<T>| self.len() == 0
+        )
+    }
+    pub fn fill(&mut self, el: T) {
+        storage_apply!(self, |x: &mut ArrayD<T>| x.fill(el), |x: &mut CudaData<
+            T,
+        >| todo!())
+    }
+    pub fn len(&self) -> usize {
+        storage_apply!(&self, |x: &ArrayD<T>| x.len(), |x: &CudaData<T>| todo!())
+    }
 
-// A + &B, add(&B) for A
-impl<T: Primitive> ops::Add<&CudaData<T>> for CudaData<T>
-where
-    T: Primitive,
-{
-    type Output = CudaData<T>;
-    fn add(mut self, rhs: &CudaData<T>) -> Self::Output {
-        todo!()
+    pub fn t_clone(&self) -> ArrayD<T> {
+        storage_apply!(&self, |x: &ArrayD<T>| x.t().to_owned(), |x: &CudaData<
+            T,
+        >| todo!())
+    }
+
+    // ops
+    pub fn sum(&self) -> T {
+        storage_apply!(&self, |x: &ArrayD<T>| x.sum(), |x: &CudaData<T>| todo!())
+    }
+    pub fn sum_axis(&self, a: Axis) -> ArrayD<T> {
+        storage_apply!(
+            &self,
+            |x: &ArrayD<T>| x.sum_axis(a),
+            |x: &CudaData<T>| todo!()
+        )
+    }
+    pub fn mean(&self) -> T {
+        storage_apply!(&self, |x: &ArrayD<T>| x.mean().unwrap(), |x: &CudaData<
+            T,
+        >| todo!())
+    }
+    pub fn mean_axis(&self, a: Axis) -> ArrayD<T> {
+        storage_apply!(
+            &self,
+            |x: &ArrayD<T>| x.mean_axis(a).unwrap(),
+            |x: &CudaData<T>| todo!()
+        )
+    }
+
+    pub fn broadcast(&self, a: IxDyn) -> ArrayD<T> {
+        storage_apply!(
+            &self,
+            |x: &ArrayD<T>| x.broadcast(a).unwrap().to_owned(),
+            |x: &CudaData<T>| todo!()
+        )
+    }
+
+    // TODO dont want to implement these for cuda tbh, ndarray dispatch should be handled by caller, hence they just return ndarrays
+    pub fn mapv(&self, f: impl Fn(T) -> T) -> ArrayD<T> {
+        storage_apply!(&self, |x: &ArrayD<T>| x.mapv(f), |x: &CudaData<T>| todo!())
+    }
+
+    pub fn mapv_inplace(&mut self, f: impl Fn(T) -> T) {
+        storage_apply!(
+            self,
+            |x: &mut ArrayD<T>| x.mapv_inplace(f),
+            |x: &mut CudaData<T>| todo!()
+        )
+    }
+
+    pub fn map(&self, f: impl Fn(&T) -> T) -> ArrayD<T> {
+        storage_apply!(&self, |x: &ArrayD<T>| x.map(f), |x: &CudaData<T>| todo!())
+    }
+
+    pub fn view(&self) -> ArrayView<T, IxDyn> {
+        if let StorageType::ArrayData(arr) = self {
+            arr.view()
+        } else {
+            panic!("Not Implemented for CudaData")
+        }
+    }
+
+    pub fn view_mut(&mut self) -> ArrayViewMut<T, IxDyn> {
+        if let StorageType::ArrayData(arr) = self {
+            arr.view_mut()
+        } else {
+            panic!("Not Implemented for CudaData")
+        }
+    }
+
+    pub fn iter(&self) -> Iter<T, IxDyn> {
+        if let StorageType::ArrayData(arr) = self {
+            arr.iter()
+        } else {
+            panic!("Not Implemented for CudaData")
+        }
+    }
+
+    pub fn iter_mut(&mut self) -> IterMut<T, IxDyn> {
+        if let StorageType::ArrayData(arr) = self {
+            arr.iter_mut()
+        } else {
+            panic!("Not Implemented for CudaData")
+        }
+    }
+
+    pub fn into_raw_vec(&self) -> Vec<T> {
+        if let StorageType::ArrayData(arr) = self {
+            arr.clone().into_raw_vec()
+        } else {
+            panic!("Not Implemented for CudaData")
+        }
     }
 }

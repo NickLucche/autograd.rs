@@ -6,8 +6,10 @@ use std::vec;
 use ndarray::linalg::Dot;
 use ndarray::s;
 use ndarray::{Array, ArrayD, Ix2, IxDyn};
+use crate::tensor::Primitive;
 
-use crate::tensor::tensor::Primitive;
+// NOTE if there's some function you dont want to implement in cuda(ie broadcast)
+// just move its implementation here and avoid common interface
 
 pub fn relu_ndarray<T: Primitive>(x: &ArrayD<T>) -> ArrayD<T> {
     let mut t = ArrayD::<T>::zeros(x.raw_dim());

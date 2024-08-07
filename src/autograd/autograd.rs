@@ -1,5 +1,6 @@
 use crate::operators::operators::{Operator, Operators};
-use crate::tensor::tensor::{Powi, Primitive, Tensor};
+use crate::tensor::Primitive;
+use crate::tensor::tensor::{Powi, Tensor};
 use ndarray::linalg::Dot;
 use ndarray::{Array, Dimension, Ix2};
 use num_traits::{Float, FromPrimitive};

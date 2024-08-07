@@ -1,24 +1,19 @@
 use ndarray::linalg::Dot;
 use ndarray::s;
 use ndarray::{Array, ArrayD, Ix2, IxDyn};
-use std::cell::RefCell;
 use std::rc::Rc;
 
 use crate::autograd::autograd::Node;
 use crate::operators::functional_ndarray::{relu_backward_ndarray, relu_ndarray, im2col_ndarray};
 use crate::storage_apply;
-use crate::tensor::tensor::{
-    ones_like, ones_like_f32, zeros_like, CudaData, Powi, Primitive, StorageType, Tensor,
-};
+use crate::tensor::Primitive;
+use crate::tensor::storage::{StorageType, CudaData};
+use crate::tensor::tensor::{ones_like, ones_like_f32, zeros_like, Powi, Tensor};
 
 use super::functional_ndarray::im2col_ndarray_backward;
+use crate::utils::{SharedPtr, shared_ptr_new};
 
-type SharedPtr<T> = Rc<RefCell<T>>;
 
-// TODO to utils
-pub fn shared_ptr_new<T>(x: T) -> SharedPtr<T> {
-    Rc::new(RefCell::new(x))
-}
 
 pub trait Operator {
     fn forward<T: Primitive + 'static>(&self, xs: Vec<Tensor<T>>) -> Tensor<T>

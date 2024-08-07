@@ -5,7 +5,9 @@
 ** level that implements the dispatching down to the most concrete type (as of now).
 */
 
-use super::tensor::{Primitive, StorageType, Tensor};
+use crate::tensor::Primitive;
+use super::tensor::Tensor;
+use super::storage::StorageType;
 use super::utils::{tensor_op, tensor_op_mut};
 use ndarray::{ArrayD, IxDyn, ScalarOperand};
 use num_traits::Signed;
