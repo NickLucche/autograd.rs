@@ -11,8 +11,6 @@ The library is heavily inspired by PyTorch and we often refer to its source code
 Autograd builds a computational graph dynamically/lazily, as you execute through the network's operations, much like PyTorch.
 Unlike PyTorch, where every tensor operation inherently triggers the construction of the graph (unless you use `torch.no_grad()`), Autograd.rs reserves this activity for operations via the Layers API only. I think this limits the flexibility of the library, but it makes it easier to maintain and discourages complex architectures (which we won't build anyway). 
 
-There is no `unsafe` code *directly* written/used in this library.
-
 ## Quickstart ⚡
 ### Installation 🛠️
 
@@ -65,16 +63,29 @@ But more will follow! If you're eager to add more operations, you can chip in by
 
 Some of the vital features I'd like to include ASAP are:
 
-- GPU Support.
-- MNIST example, a bit out of fashion but still coming.
-- API work: should feel as simple and clean as possible.
-- Model serialization.
-- API for a `no_grad` mode.
+ [ ] GPU Support.
+ [ ] CUDA error surfacing.
+ [ ] Optional cuda comp. Use cargo.toml features https://chatgpt.com/share/0c28e328-6fac-4d1c-8704-5ca9f095e0fd
+ [ ] MNIST example, a bit out of fashion but still coming.
+ [ ] API work: should feel as simple and clean as possible.
+ [ ] Model serialization.
+ [ ] API for a `no_grad` mode.
 
 
 ## Deep Dive 🐠
 
 TODO 
+
+### On RefCell quirk
+
+```Rust
+let a = Tensor::from(array![[1., 2.], [3., 4.]]);
+let aclone = a.clone(); // still pointing to same storage
+let adata = a.data_mut();
+
+// ERROR, holding a reference to a clone of a still increases Ref count!
+let c = &a * &b;
+```
 
 ## Contributing 🤝
 
